@@ -1,13 +1,15 @@
 [project]
 name = "perseus-citation-model"
 version = "0.1.0"
-description = "Add your description here"
+description = "Code to train model for citation extraction (for citations to Greek and Latin authors) from XML files, and a model for resolving citations to Perseus URNs (unique resource names)."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "bs4>=0.0.2",
-    "datasets>=4.4.1",
-    "lxml>=6.0.2",
-    "pytest>=9.0.1",
-    "transformers>=4.57.1",
+  "bs4>=0.0.2",
+  "datasets>=4.4.1",
+  "lxml>=6.0.2",
+  "pytest>=9.0.1",
+  "pytest-mock>=3.15.1",
+  "torch>=2.9.1",
+  "transformers>=4.57.1",
 ]

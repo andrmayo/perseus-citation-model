@@ -1,16 +1,6 @@
 """Unit tests for XML parser BIO tagging functionality."""
 
-import sys
-from pathlib import Path
-
-import pytest
-
-# Add src directory to path to handle hyphenated package name
-project_root = Path(__file__).parent.parent
-src_path = project_root / "src" / "perscit-model"
-sys.path.insert(0, str(src_path))
-
-from extraction.data.xml_parser import parse_xml_to_bio
+from perscit_model.extraction.data.xml_parser import parse_xml_to_bio
 
 
 class TestParseXmlToBio:
@@ -94,9 +84,13 @@ class TestParseXmlToBio:
 
         assert tokens == ["Soph.", "OT", "1", "and", "Eur.", "Med.", "2"]
         assert labels == [
-            "B-BIBL", "I-BIBL", "I-BIBL",  # First citation
+            "B-BIBL",
+            "I-BIBL",
+            "I-BIBL",  # First citation
             "O",  # "and"
-            "B-BIBL", "I-BIBL", "I-BIBL"  # Second citation
+            "B-BIBL",
+            "I-BIBL",
+            "I-BIBL",  # Second citation
         ]
 
     def test_empty_tag(self):

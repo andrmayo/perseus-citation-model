@@ -1,3 +1,16 @@
+Metadata-Version: 2.4
+Name: perseus-citation-model
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: bs4>=0.0.2
+Requires-Dist: datasets>=4.4.1
+Requires-Dist: lxml>=6.0.2
+Requires-Dist: pytest>=9.0.1
+Requires-Dist: torch>=2.9.1
+Requires-Dist: transformers>=4.57.1
+
 # Perseus Citation Model
 
 Machine learning models for identifying citation structures in classical texts and resolving bibliographic references to canonical URNs.
