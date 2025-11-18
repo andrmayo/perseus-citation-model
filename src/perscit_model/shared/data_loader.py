@@ -18,11 +18,15 @@ class SharedDataLoader:
         model_name: str | None = None,
         max_length: int | None = None,
         config_path: str | Path | None = None,
+        special_tokens: str | list[str] | None = None,
     ):
         model_name_from_config, max_length_from_config = self.from_yaml(config_path)
         self.model_name = model_name if model_name else model_name_from_config
         self.max_length = max_length if max_length else max_length_from_config
         self._tokenizer = None
+        if isinstance(special_tokens, str):
+            special_tokens = [special_tokens]
+        self.special_tokens = special_tokens if special_tokens is not None else []
 
     @staticmethod
     def from_yaml(config_path: Path | str | None = None) -> tuple[str, int]:
@@ -56,6 +60,11 @@ class SharedDataLoader:
             for line in f:
                 yield json.loads(line)
 
+    def add_special_tokens(self, new_tokens: str | list):
+        if isinstance(new_tokens, str):
+            new_tokens = [new_tokens]
+        self.special_tokens.extend(new_tokens)
+
     @property
     def tokenizer(self) -> transformers.PreTrainedTokenizerBase:
         """
@@ -69,6 +78,10 @@ class SharedDataLoader:
         """
         if self._tokenizer is None:
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            if self.special_tokens:
+                self._tokenizer.add_special_tokens(
+                    {"additional_special_tokens": self.special_tokens}
+                )
         return self._tokenizer
 
     def tokenize_text(

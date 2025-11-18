@@ -6,17 +6,35 @@ import pytest
 @pytest.fixture
 def mock_tokenizer(mocker):
     """Create a mock tokenizer that returns realistic BatchEncoding-like data."""
+    import torch
+
     mock_tok = mocker.Mock()
 
-    # Configure the mock to return dict with input_ids and attention_mask
+    # Configure the mock to return object with both dict and attribute access
     def tokenize_side_effect(text, **kwargs):
         max_length = kwargs.get('max_length', 512)
         # Simple mock: return list of token IDs based on text length
         num_tokens = min(len(text.split()), max_length)
-        return {
-            "input_ids": [[1] * num_tokens + [0] * (max_length - num_tokens)],
-            "attention_mask": [[1] * num_tokens + [0] * (max_length - num_tokens)]
+
+        # Create a mock BatchEncoding that supports both dict and attribute access
+        mock_encoding = mocker.Mock()
+        input_ids_tensor = torch.tensor([[1] * num_tokens + [0] * (max_length - num_tokens)])
+        attention_mask_tensor = torch.tensor([[1] * num_tokens + [0] * (max_length - num_tokens)])
+
+        data_dict = {
+            "input_ids": input_ids_tensor,
+            "attention_mask": attention_mask_tensor
         }
+
+        # Support dict-style access
+        mock_encoding.__getitem__ = lambda self, key: data_dict[key]
+        mock_encoding.__contains__ = lambda self, key: key in data_dict
+
+        # Support attribute-style access
+        mock_encoding.input_ids = input_ids_tensor
+        mock_encoding.attention_mask = attention_mask_tensor
+
+        return mock_encoding
 
     mock_tok.side_effect = tokenize_side_effect
 

@@ -2,6 +2,57 @@
 
 Machine learning models for identifying citation structures in classical texts and resolving bibliographic references to canonical URNs.
 
+**Project Status:** 🚧 Early Development
+- ✅ Data pipeline implemented (extraction task)
+- ✅ Model initialization and embedding handling
+- ✅ Comprehensive test suite (98 tests passing)
+- ⏳ Training scripts (in progress)
+- ⏳ URN resolution implementation (planned)
+
+## Installation
+
+**Requirements:**
+- Python 3.13+
+- [uv](https://github.com/astral-sh/uv) package manager (recommended) or pip
+
+**Setup:**
+
+```bash
+# Clone repository
+git clone https://github.com/your-username/perseus-citation-model.git
+cd perseus-citation-model
+
+# Install with uv (recommended)
+uv sync
+
+# Or install with pip
+pip install -e ".[dev]"
+```
+
+**Dependencies:**
+- `transformers` - HuggingFace transformers (DeBERTa models)
+- `torch` - PyTorch for model training
+- `datasets` - HuggingFace datasets library
+- `beautifulsoup4` + `lxml` - XML parsing
+- `sentencepiece` + `protobuf` - Tokenizer support
+- `pytest` + `pytest-mock` - Testing (dev dependency)
+
+## Quick Start
+
+```python
+from perscit_model.extraction.data_loader import ExtractionDataLoader, create_extraction_dataset
+from perscit_model.extraction.model import create_model
+
+# Load data
+loader = ExtractionDataLoader()
+dataset = create_extraction_dataset("cit_data/resolved.jsonl")
+
+# Create model
+model = create_model(loader.tokenizer)
+
+# Train (coming soon - see implementation examples below)
+```
+
 ## Overview
 
 This project provides two complementary ML tasks for working with citations in TEI-encoded XML documents from the Perseus Digital Library:
@@ -146,97 +197,59 @@ Tags:     B-BIBL I-BIBL I-BIBL I-BIBL I-BIBL I-BIBL O B-QUOTE I-QUOTE I-QUOTE I-
    - Quick prototyping
    - Establishing baseline metrics
 
-### Implementation
+### Current Implementation (Special Tokens Approach)
+
+**See actual implementation in `src/perscit_model/extraction/`**
 
 ```python
-from transformers import (
-    AutoTokenizer,
-    AutoModelForTokenClassification,
-    Trainer,
-    TrainingArguments,
-    DataCollatorForTokenClassification
+from perscit_model.extraction.data_loader import (
+    ExtractionDataLoader,
+    create_extraction_dataset,
+    parse_xml_to_bio,
+    generate_bio_labels
 )
-from datasets import Dataset
-import torch
+from perscit_model.extraction.model import create_model
+from transformers import Trainer, TrainingArguments
 
-# 1. Define label set
-labels = ["O", "B-CIT", "I-CIT", "B-QUOTE", "I-QUOTE", "B-BIBL", "I-BIBL"]
-label2id = {label: i for i, label in enumerate(labels)}
-id2label = {i: label for i, label in enumerate(labels)}
+# 1. Create data loader (adds special tokens to DeBERTa)
+loader = ExtractionDataLoader()  # Automatically adds 6 special tokens
 
-# 2. Load model
-model_name = "bert-base-uncased"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForTokenClassification.from_pretrained(
-    model_name,
-    num_labels=len(labels),
-    id2label=id2label,
-    label2id=label2id
-)
+# 2. Create dataset from JSONL
+#    - Parses XML, replaces tags with special tokens
+#    - Tokenizes with DeBERTa
+#    - Generates BIO labels from special token positions
+dataset = create_extraction_dataset("cit_data/resolved.jsonl")
 
-# 3. Prepare dataset
-def tokenize_and_align_labels(examples):
-    tokenized_inputs = tokenizer(
-        examples["tokens"],
-        truncation=True,
-        is_split_into_words=True,
-        padding=True
-    )
-
-    labels = []
-    for i, label in enumerate(examples["ner_tags"]):
-        word_ids = tokenized_inputs.word_ids(batch_index=i)
-        label_ids = []
-        previous_word_idx = None
-
-        for word_idx in word_ids:
-            if word_idx is None:
-                label_ids.append(-100)  # Ignore special tokens
-            elif word_idx != previous_word_idx:
-                label_ids.append(label[word_idx])
-            else:
-                # For subword tokens, use same label or -100
-                label_ids.append(label[word_idx])
-            previous_word_idx = word_idx
-
-        labels.append(label_ids)
-
-    tokenized_inputs["labels"] = labels
-    return tokenized_inputs
-
-# Load your dataset
-train_dataset = Dataset.from_dict({
-    "tokens": [...],      # List of token lists
-    "ner_tags": [...]     # List of label ID lists
-})
-
-tokenized_dataset = train_dataset.map(tokenize_and_align_labels, batched=True)
+# 3. Create model (resizes embeddings for special tokens)
+model = create_model(loader.tokenizer)
 
 # 4. Training configuration
 training_args = TrainingArguments(
-    output_dir="./results",
+    output_dir="./outputs/extraction/models",
     learning_rate=2e-5,
     per_device_train_batch_size=16,
-    per_device_eval_batch_size=16,
     num_train_epochs=3,
-    weight_decay=0.01,
     evaluation_strategy="epoch",
     save_strategy="epoch",
     load_best_model_at_end=True,
-    push_to_hub=False,
 )
 
 # 5. Train
 trainer = Trainer(
     model=model,
     args=training_args,
-    train_dataset=tokenized_dataset,
-    tokenizer=tokenizer,
-    data_collator=DataCollatorForTokenClassification(tokenizer),
+    train_dataset=dataset,
+    # eval_dataset=val_dataset,  # Create from separate file
 )
 
 trainer.train()
 ```
+
+**Key differences from standard token classification:**
+1. **No word alignment** - Special tokens handle tag boundaries
+2. **Simpler labels** - Generated automatically from special token positions
+3. **Malformed XML handling** - BeautifulSoup repairs broken tags
+4. **Nested tags** - Inner tag takes precedence in BIO scheme
 
 ### Pros
 
@@ -389,84 +402,61 @@ pip install torchcrf
 
 ## Data Preparation Pipeline
 
-### 1. Extract and Parse JSONL
+**Actual implementation:** See `src/perscit_model/extraction/data_loader.py`
 
-```python
-import json
-import re
-from bs4 import BeautifulSoup
+### Pipeline Overview
 
-def load_data(jsonl_path):
-    """Load training data from JSONL file."""
-    examples = []
-    with open(jsonl_path, 'r') as f:
-        for line in f:
-            examples.append(json.loads(line))
-    return examples
-
-def extract_tags_from_xml(xml_context):
-    """Extract text and BIO tags from XML context."""
-    soup = BeautifulSoup(xml_context, 'xml')
-    tokens = []
-    labels = []
-
-    # Parse XML and extract tokens with their tags
-    # This is a simplified example - needs proper implementation
-    for elem in soup.descendants:
-        if isinstance(elem, str):
-            text = elem.strip()
-            if text:
-                words = text.split()
-                parent_tag = elem.parent.name if elem.parent else None
-
-                for i, word in enumerate(words):
-                    tokens.append(word)
-                    if parent_tag == 'cit':
-                        labels.append('B-CIT' if i == 0 else 'I-CIT')
-                    elif parent_tag == 'quote':
-                        labels.append('B-QUOTE' if i == 0 else 'I-QUOTE')
-                    elif parent_tag == 'bibl':
-                        labels.append('B-BIBL' if i == 0 else 'I-BIBL')
-                    else:
-                        labels.append('O')
-
-    return tokens, labels
+```
+JSONL file → parse_xml_to_bio() → tokenize → generate_bio_labels() → Dataset
 ```
 
-### 2. Handle Nested Tags
-
-For nested structures like:
-
-```xml
-<cit>
-  <bibl>Hdt. 8.82</bibl>
-  <quote>Ajax hurled a rock</quote>
-</cit>
-```
-
-**Strategy options:**
-
-1. **Innermost wins:** Use most specific tag (`BIBL`/`QUOTE` over `CIT`)
-2. **Multi-label:** Predict multiple tags per token
-3. **Hierarchical:** Separate models for each level
-4. **Flatten:** Only tag innermost meaningful elements
-
-### 3. Split Dataset
+### Step 1: XML → Special Tokens
 
 ```python
-from sklearn.model_selection import train_test_split
+from perscit_model.extraction.data_loader import parse_xml_to_bio
 
-# Split by document to avoid leakage
-train_docs, test_docs = train_test_split(
-    documents,
-    test_size=0.2,
-    random_state=42
-)
-train_docs, val_docs = train_test_split(
-    train_docs,
-    test_size=0.1,
-    random_state=42
-)
+xml = '<bibl n="Hdt. 8.82">Hdt. 8.82</bibl> some context'
+processed = parse_xml_to_bio(xml)
+# Output: " [BIBL_START]  Hdt. 8.82  [BIBL_END]  some context"
+```
+
+**What it does:**
+1. Parse XML with BeautifulSoup (repairs malformed XML)
+2. Remove attributes from `<bibl>`, `<quote>`, `<cit>` tags
+3. Replace tags with special tokens surrounded by spaces
+4. Preserve other tags (`<title>`, `<author>`, etc.)
+
+### Step 2: Tokenize with DeBERTa
+
+```python
+loader = ExtractionDataLoader()  # Adds special tokens to vocabulary
+tokens = loader.tokenizer(processed)
+# DeBERTa tokenizes, special tokens won't be split
+```
+
+### Step 3: Generate BIO Labels
+
+```python
+from perscit_model.extraction.data_loader import generate_bio_labels
+
+labels = generate_bio_labels(tokens.input_ids[0], loader.tokenizer)
+# State machine: [BIBL_START] triggers B-BIBL, subsequent tokens get I-BIBL
+```
+
+### Handling Nested Tags
+
+For nested structures like `<cit><bibl>Hdt. 8.82</bibl></cit>`:
+
+**Strategy: Inner tag takes precedence**
+- Text inside `<bibl>` gets `B-BIBL`/`I-BIBL` labels
+- `<cit>` markers present but tokens labeled by innermost tag
+- Model learns nested structure from marker positions
+
+### Dataset Splitting
+
+```python
+# TODO: Implement train/val/test split
+# Recommended: Split by document to avoid data leakage
 ```
 
 ---
@@ -1295,152 +1285,94 @@ Unlike tag extraction, URN resolution should be split by **unique citation patte
 ```
 perseus-citation-model/
 │
-├── cit_data/                          # Raw training data
-│   ├── resolved.jsonl                 # 216K examples - main training data
-│   ├── unresolved.jsonl               # 30K examples
-│   └── document_mappings.json
-│
-├── model_data/                        # Processed datasets
-│   ├── processed/                     # BIO-tagged data ready for training
-│   │   ├── train.jsonl
-│   │   ├── val.jsonl
-│   │   └── test.jsonl
-│   ├── splits/                        # Document-level split indices
-│   │   └── split_config.json
-│   └── stats/                         # Data statistics and analysis
-│       └── data_summary.json
+├── cit_data/                          # Raw training data (not in repo)
+│   ├── resolved.jsonl                 # 216K citations with URNs
+│   └── unresolved.jsonl               # 30K citations without URNs
 │
 ├── src/                               # Source code
-│   └── perscit_model/                # Main package
+│   └── perscit_model/                 # Main package
 │       ├── __init__.py
-│       ├── shared/                    # Shared utilities across both tasks
+│       ├── shared/                    # Shared utilities across tasks
 │       │   ├── __init__.py
-│       │   ├── data_loader.py         # Load JSONL files
-│       │   ├── preprocessing.py       # Common text preprocessing
-│       │   └── utils.py               # Shared helper functions
-│       ├── extraction/                # Task 1: Tag Extraction
+│       │   ├── data_loader.py         # Base JSONL loader, tokenization
+│       │   └── training_utils.py      # Training configuration utilities
+│       ├── extraction/                # Task 1: Tag Extraction (BIO tagging)
 │       │   ├── __init__.py
-│       │   ├── data/                  # Tag extraction data processing
-│       │   │   ├── __init__.py
-│       │   │   ├── xml_parser.py      # Parse XML context, extract BIO tags
-│       │   │   ├── dataset.py         # PyTorch Dataset for token classification
-│       │   │   └── collator.py        # Data collators
-│       │   ├── models/                # Tag extraction models
-│       │   │   ├── __init__.py
-│       │   │   ├── transformer_tagger.py  # DeBERTa/RoBERTa token classifier
-│       │   │   └── transformer_crf.py     # Transformer + CRF model
-│       │   ├── training/              # Training logic
-│       │   │   ├── __init__.py
-│       │   │   ├── trainer.py         # Training loops
-│       │   │   └── callbacks.py       # Custom callbacks
-│       │   └── evaluation/            # Evaluation and metrics
-│       │       ├── __init__.py
-│       │       ├── metrics.py         # seqeval metrics, BIO scoring
-│       │       └── analysis.py        # Error analysis utilities
+│       │   ├── data_loader.py         # XML → special tokens → BIO labels
+│       │   └── model.py               # DeBERTa token classification model
 │       └── resolution/                # Task 2: URN Resolution
 │           ├── __init__.py
-│           ├── parsing/               # Citation parsing
-│           │   ├── __init__.py
-│           │   ├── citation_parser.py # Rule-based citation parser
-│           │   ├── cts_catalog.py     # CTS URN catalog management
-│           │   └── fuzzy_matcher.py   # Fuzzy matching for abbreviations
-│           ├── models/                # URN resolution models
-│           │   ├── __init__.py
-│           │   ├── seq2seq.py         # T5/BART seq2seq models
-│           │   ├── retrieval.py       # RAG-based retrieval models
-│           │   └── classifier.py      # Ambiguity resolution classifier
-│           ├── training/              # Training logic
-│           │   ├── __init__.py
-│           │   └── trainer.py         # Training loops
-│           └── evaluation/            # Evaluation and metrics
-│               ├── __init__.py
-│               ├── metrics.py         # URN accuracy metrics
-│               └── analysis.py        # Error analysis utilities
-│
-├── scripts/                           # Executable scripts
-│   ├── extraction/                    # Tag extraction scripts
-│   │   ├── prepare_data.py            # Convert JSONL → BIO format
-│   │   ├── train_transformer.py       # Train DeBERTa token classifier
-│   │   ├── train_transformer_crf.py   # Train transformer+CRF model
-│   │   ├── evaluate.py                # Run evaluation on test set
-│   │   ├── predict.py                 # Tag extraction inference
-│   │   └── analyze_errors.py          # Error analysis
-│   └── resolution/                    # URN resolution scripts
-│       ├── analyze_citations.py       # Analyze citation patterns
-│       ├── build_catalog.py           # Build CTS catalog from data
-│       ├── train_parser.py            # Train/test rule-based parser
-│       ├── train_author_classifier.py # Train author classification model
-│       ├── train_work_classifier.py   # Train work classification model
-│       ├── evaluate.py                # Evaluate URN resolution
-│       └── resolve_batch.py           # Batch URN resolution
+│           └── data_loader.py         # Citation data loading for resolution
 │
 ├── configs/                           # Configuration files
-│   ├── base_config.yaml               # Shared config (paths, data locations)
-│   ├── extraction/                    # Tag extraction configs
-│   │   ├── deberta_base.yaml          # DeBERTa hyperparams (recommended)
-│   │   ├── roberta_base.yaml          # RoBERTa hyperparams
-│   │   ├── bert_base.yaml             # BERT baseline hyperparams
-│   │   └── transformer_crf.yaml       # Transformer+CRF hyperparams
-│   └── resolution/                    # URN resolution configs
-│       ├── hybrid_parser.yaml         # Rule-based + ML hybrid config
-│       ├── author_classifier.yaml     # Author classification hyperparams
-│       ├── work_classifier.yaml       # Work classification hyperparams
-│       └── confidence_scorer.yaml     # Confidence scoring hyperparams
+│   └── extraction/
+│       └── baseline.yaml              # Hyperparameters (model, max_length)
 │
-├── notebooks/                         # Jupyter notebooks
-│   ├── 01_data_exploration.ipynb      # EDA on resolved.jsonl and unresolved.jsonl
-│   ├── extraction/                    # Tag extraction notebooks
-│   │   ├── 02_preprocessing_test.ipynb    # Test BIO tagging pipeline
-│   │   ├── 03_model_experiments.ipynb     # Quick tag extraction experiments
-│   │   └── 04_error_analysis.ipynb        # Analyze tagging mistakes
-│   └── resolution/                    # URN resolution notebooks
-│       ├── 05_citation_analysis.ipynb     # Analyze citation patterns
-│       ├── 06_parser_experiments.ipynb    # Test parsing strategies
-│       └── 07_urn_error_analysis.ipynb    # Analyze resolution errors
+├── tests/                             # Test suite (98 tests)
+│   ├── conftest.py                    # Shared fixtures (mock tokenizer)
+│   ├── fixtures/                      # Test data
+│   │   └── sample_extraction.jsonl   # 5 real citation examples
+│   ├── unit/                          # Fast unit tests (88 tests, ~3s)
+│   │   ├── test_extraction_dataset.py    # BIO label generation tests
+│   │   ├── test_extraction_loader.py     # Data loader tests
+│   │   ├── test_extraction_pipeline.py   # End-to-end pipeline tests
+│   │   ├── test_resolution_loader.py     # Resolution data tests
+│   │   └── test_shared_data_loader.py    # Shared utility tests
+│   └── integration/                   # Slow integration tests (10 tests, ~8s)
+│       └── test_extraction_model.py      # Real model loading/training tests
 │
-├── outputs/                           # Training outputs (gitignored)
-│   ├── extraction/                    # Tag extraction outputs
-│   │   ├── models/                    # Saved model checkpoints
-│   │   │   ├── deberta-base-run1/
-│   │   │   ├── roberta-base-run1/
-│   │   │   └── transformer-crf-run1/
-│   │   ├── logs/                      # Training logs, tensorboard
-│   │   │   └── runs/
-│   │   ├── predictions/               # Model predictions
-│   │   │   └── test_predictions.jsonl
-│   │   └── metrics/                   # Evaluation results
-│   │       └── results_summary.json
-│   └── resolution/                    # URN resolution outputs
-│       ├── models/                    # Saved model checkpoints
-│       │   ├── author-classifier-run1/
-│       │   ├── work-classifier-run1/
-│       │   ├── confidence-scorer-run1/
-│       │   └── hybrid-system-run1/
-│       ├── catalogs/                  # CTS catalog builds
-│       │   └── cts_catalog.json
-│       ├── predictions/               # URN predictions
-│       │   └── resolved_urns.jsonl
-│       └── metrics/                   # Evaluation results
-│           └── results_summary.json
-│
-├── tests/                             # Unit tests
-│   ├── __init__.py
-│   ├── test_shared.py                 # Test shared utilities
-│   ├── extraction/                    # Tag extraction tests
-│   │   ├── __init__.py
-│   │   ├── test_xml_parser.py
-│   │   ├── test_models.py
-│   │   └── test_dataset.py
-│   └── resolution/                    # URN resolution tests
-│       ├── __init__.py
-│       ├── test_citation_parser.py
-│       ├── test_catalog.py
-│       └── test_models.py
-│
-├── requirements.txt                   # Python dependencies
-├── pyproject.toml                     # Project configuration
-├── .gitignore                         # Git ignore (outputs/, etc.)
-└── README.md                          # Project documentation
+├── pyproject.toml                     # Project config, dependencies, test settings
+├── .gitignore
+├── .python-version                    # Python 3.13
+└── README.md
+```
+
+**Key Implementation Details:**
+
+### Extraction Data Pipeline (Special Tokens Approach)
+
+Instead of word-level BIO tagging with complex alignment, we use **special tokens**:
+
+1. **XML → Special Tokens**: Replace `<bibl>`, `<quote>`, `<cit>` tags with `[BIBL_START]`, `[BIBL_END]`, etc.
+2. **Add to Vocabulary**: Special tokens added to DeBERTa tokenizer (won't be split)
+3. **Tokenize**: DeBERTa tokenizes text with special tokens intact
+4. **Generate BIO Labels**: State machine generates labels based on special token positions
+
+**Example:**
+```
+XML:      <bibl>Hdt. 8.82</bibl> some context
+↓
+Special:  [BIBL_START] Hdt. 8.82 [BIBL_END] some context
+↓
+Tokens:   [CLS] [BIBL_START] Hdt . 8 . 82 [BIBL_END] some context [SEP]
+↓
+Labels:   -100  -100          B-  I- I- I- I- -100        O    O       -100
+```
+
+**Advantages over word-level alignment:**
+- No complex subword↔word alignment logic
+- Special tokens guaranteed not to split
+- Simpler, more reliable label generation
+- Handles malformed XML gracefully (BeautifulSoup repair)
+
+### Model Initialization
+
+**Embedding Resizing:**
+- Base DeBERTa vocab: 128,000 tokens
+- +6 special tokens = 128,006 tokens
+- New embeddings initialized to **mean of existing embeddings** (training stability)
+
+### Testing
+
+```bash
+# Fast unit tests only (default)
+pytest                    # 88 tests in ~3s
+
+# Integration tests (downloads real models)
+pytest tests/integration  # 10 tests in ~8s
+
+# All tests
+pytest tests              # 98 tests in ~9s
 ```
 
 ---

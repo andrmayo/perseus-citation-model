@@ -1,13 +1,14 @@
 Metadata-Version: 2.4
 Name: perseus-citation-model
 Version: 0.1.0
-Summary: Add your description here
+Summary: Code to train model for citation extraction (for citations to Greek and Latin authors) from XML files, and a model for resolving citations to Perseus URNs (unique resource names).
 Requires-Python: >=3.12
 Description-Content-Type: text/markdown
 Requires-Dist: bs4>=0.0.2
 Requires-Dist: datasets>=4.4.1
 Requires-Dist: lxml>=6.0.2
 Requires-Dist: pytest>=9.0.1
+Requires-Dist: pytest-mock>=3.15.1
 Requires-Dist: torch>=2.9.1
 Requires-Dist: transformers>=4.57.1
 
@@ -1329,14 +1330,13 @@ perseus-citation-model/
 │       ├── shared/                    # Shared utilities across both tasks
 │       │   ├── __init__.py
 │       │   ├── data_loader.py         # Load JSONL files
-│       │   ├── preprocessing.py       # Common text preprocessing
-│       │   └── utils.py               # Shared helper functions
+│       │   └── traing_utils.py        # Shared helper functions
 │       ├── extraction/                # Task 1: Tag Extraction
 │       │   ├── __init__.py
 │       │   ├── data/                  # Tag extraction data processing
 │       │   │   ├── __init__.py
 │       │   │   ├── xml_parser.py      # Parse XML context, extract BIO tags
-│       │   │   ├── dataset.py         # PyTorch Dataset for token classification
+│       │   │   ├── loader.py          # Extends data_loader.py for extraction
 │       │   │   └── collator.py        # Data collators
 │       │   ├── models/                # Tag extraction models
 │       │   │   ├── __init__.py
@@ -1352,6 +1352,9 @@ perseus-citation-model/
 │       │       └── analysis.py        # Error analysis utilities
 │       └── resolution/                # Task 2: URN Resolution
 │           ├── __init__.py
+│           ├── data/                  # Citation resolution data processing
+│           │   ├── __init__.py
+│           │   ├── loader.py          # Extends data_loader.py for resolution
 │           ├── parsing/               # Citation parsing
 │           │   ├── __init__.py
 │           │   ├── citation_parser.py # Rule-based citation parser
