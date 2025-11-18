@@ -2,6 +2,8 @@
 
 Machine learning models for identifying citation structures in classical texts and resolving bibliographic references to canonical URNs.
 
+Current README largely contains notes for my own use.
+
 **Project Status:** 🚧 Early Development
 
 - ✅ Data pipeline implemented (extraction task)
@@ -183,70 +185,22 @@ Tags:     B-BIBL I-BIBL I-BIBL I-BIBL I-BIBL I-BIBL O B-QUOTE I-QUOTE I-QUOTE I-
 
 ### Model Selection
 
-**Recommended models (in order of preference):**
+Currently, the project uses **`microsoft/deberta-v3-base`** - for the following reasons:
 
-1. **`microsoft/deberta-v3-base`** - Best for this task due to:
-   - Superior contextual understanding for nested structures
-   - Better multilingual handling (Greek, Latin, English)
-   - State-of-the-art performance on token classification
-   - 1-3% F1 improvement over RoBERTa on similar tasks
+- Superior contextual understanding for nested structures
+- Better multilingual handling (Greek, Latin, English)
+- State-of-the-art performance on token classification
+- 1-3% F1 improvement over RoBERTa on similar tasks
 
-2. **`roberta-base`** - Good alternative if:
-   - Need faster inference (~10-15% faster than DeBERTa)
-   - Memory constraints
-   - Strong baseline performance
+One alternative that might be worth trying is **`roberta-base`** - Good alternative if:
 
-3. **`bert-base-uncased`** - Use only for:
-   - Quick prototyping
-   - Establishing baseline metrics
+- Need faster inference (~10-15% faster than DeBERTa)
+- Memory constraints
+- Strong baseline performance
 
 ### Current Implementation (Special Tokens Approach)
 
 **See actual implementation in `src/perscit_model/extraction/`**
-
-```python
-from perscit_model.extraction.data_loader import (
-    ExtractionDataLoader,
-    create_extraction_dataset,
-    parse_xml_to_bio,
-    generate_bio_labels
-)
-from perscit_model.extraction.model import create_model
-from transformers import Trainer, TrainingArguments
-
-# 1. Create data loader (adds special tokens to DeBERTa)
-loader = ExtractionDataLoader()  # Automatically adds 6 special tokens
-
-# 2. Create dataset from JSONL
-#    - Parses XML, replaces tags with special tokens
-#    - Tokenizes with DeBERTa
-#    - Generates BIO labels from special token positions
-dataset = create_extraction_dataset("cit_data/resolved.jsonl")
-
-# 3. Create model (resizes embeddings for special tokens)
-model = create_model(loader.tokenizer)
-
-# 4. Training configuration
-training_args = TrainingArguments(
-    output_dir="./outputs/extraction/models",
-    learning_rate=2e-5,
-    per_device_train_batch_size=16,
-    num_train_epochs=3,
-    evaluation_strategy="epoch",
-    save_strategy="epoch",
-    load_best_model_at_end=True,
-)
-
-# 5. Train
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=dataset,
-    # eval_dataset=val_dataset,  # Create from separate file
-)
-
-trainer.train()
-```
 
 **Key differences from standard token classification:**
 
@@ -271,11 +225,11 @@ trainer.train()
 
 ---
 
-## Approach 2: Transformer + CRF (Hybrid)
+## Alternative Approach: Transformer + CRF (Hybrid)
 
 ### Overview
 
-Combines transformer contextual embeddings with a Conditional Random Field (CRF) layer to ensure valid tag sequences.
+Combine transformer contextual embeddings with a Conditional Random Field (CRF) layer to ensure valid tag sequences.
 
 ### Architecture
 
@@ -292,7 +246,7 @@ The CRF layer learns transition probabilities between tags, ensuring:
 - Global optimization across the entire sequence
 - Structured prediction with dependencies
 
-### Implementation
+### Sample Implementation (to be fully implemented later if necessary)
 
 ```python
 from transformers import AutoModel, AutoTokenizer
@@ -364,14 +318,6 @@ Valid:   B-QUOTE → I-QUOTE → I-QUOTE → O
 Valid:   O → B-BIBL → I-BIBL → O
 Invalid: O → I-QUOTE (can't start with I-)
 Invalid: B-QUOTE → I-BIBL (can't switch tag types)
-```
-
-### Installation
-
-```bash
-pip install pytorch-crf
-# or
-pip install torchcrf
 ```
 
 ### Pros

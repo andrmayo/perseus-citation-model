@@ -41,7 +41,8 @@ class TestCreateModel:
     def test_model_embeddings_resized(self, model, loader):
         """Test that model embeddings are resized for special tokens."""
         embedding_size = model.get_input_embeddings().weight.shape[0]
-        assert embedding_size == loader.tokenizer.vocab_size
+        # Should match len(tokenizer) which includes special tokens, not vocab_size
+        assert embedding_size == len(loader.tokenizer)
 
     def test_new_embeddings_initialized_to_mean(self, model):
         """Test that new token embeddings are initialized to mean of existing embeddings."""
@@ -81,8 +82,8 @@ class TestCreateModel:
         embeddings = model.get_input_embeddings().weight
         vocab_size, hidden_dim = embeddings.shape
 
-        # Check that we have the right vocab size
-        assert vocab_size == loader.tokenizer.vocab_size
+        # Check that we have the right vocab size (including special tokens)
+        assert vocab_size == len(loader.tokenizer)
 
         # Check that hidden dim is reasonable (DeBERTa base is 768)
         assert hidden_dim > 0

@@ -1,2 +1,48 @@
+# Data files (large JSONL files)
 cit_data/resolved.jsonl
 cit_data/unresolved.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Model outputs and training artifacts
+outputs/
+model_data/
+logs/
+runs/
+wandb/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db

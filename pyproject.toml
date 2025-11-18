@@ -27,3 +27,6 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]  # Default: only run fast unit tests
 pythonpath = ["src"]
+# Clean up temp directories more aggressively (keep only last 3 runs)
+tmp_path_retention_count = 3
+tmp_path_retention_policy = "failed"  # Only keep failed test dirs for debugging

@@ -48,8 +48,9 @@ def create_model(
         ignore_mismatched_sizes=True,  # In case of checkpoint size mismatch
     )
 
-    # Resize embeddings
-    model.resize_token_embeddings(tokenizer.vocab_size)
+    # Resize embeddings to include special tokens
+    # Use len(tokenizer) instead of vocab_size since vocab_size doesn't include added tokens
+    model.resize_token_embeddings(len(tokenizer))
 
     # Set the new embeddings to mean of existing embeddings
     # This is more to stabilize loss early on in training

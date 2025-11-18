@@ -234,8 +234,8 @@ class TestTrain:
             batch_size=2,
         )
 
-        # Model should have 3 labels: O, B-CIT, I-CIT
-        assert trainer.model.config.num_labels == 3
+        # Model should have 7 labels: O, B-BIBL, I-BIBL, B-QUOTE, I-QUOTE, B-CIT, I-CIT
+        assert trainer.model.config.num_labels == 7
 
 
 class TestTrainPipeline:
@@ -247,9 +247,10 @@ class TestTrainPipeline:
         data_dir = tmp_path / "data"
         data_dir.mkdir(parents=True)
 
-        # Copy sample data to simulate resolved.jsonl
+        # Copy larger sample data (20 examples) to simulate resolved.jsonl
+        # Need more examples for proper train/val/test splits
         sample_path = (
-            Path(__file__).parent.parent / "fixtures" / "sample_extraction.jsonl"
+            Path(__file__).parent.parent / "fixtures" / "sample_extraction_20.jsonl"
         )
 
         # Create a fake cit_data directory structure
@@ -364,7 +365,7 @@ test_ratio: 0.15
 seed: 999
 model_name: microsoft/deberta-v3-base
 max_length: 256
-learning_rate: 5e-5
+learning_rate: 0.00005
 per_device_train_batch_size: 2
 num_train_epochs: 1
 output_dir: outputs/custom
