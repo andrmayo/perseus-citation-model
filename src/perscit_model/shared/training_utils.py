@@ -48,6 +48,11 @@ class TrainingConfig:
     early_stopping_patience: int = 3
     early_stopping_threshold: float = 0.0001
 
+    # Data splitting ratios (only used if splitting raw data)
+    train_ratio: float = 0.8
+    val_ratio: float = 0.1
+    test_ratio: float = 0.1
+
     @classmethod
     def from_yaml(cls, path: Union[str, Path]) -> "TrainingConfig":
         """Load config from YAML file."""

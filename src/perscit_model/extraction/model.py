@@ -5,6 +5,7 @@ from pathlib import Path
 import torch
 from transformers import (
     AutoModelForTokenClassification,
+    PreTrainedModel,
     PreTrainedTokenizerBase,
 )
 
@@ -22,7 +23,7 @@ from perscit_model.shared.training_utils import TrainingConfig
 def create_model(
     tokenizer: PreTrainedTokenizerBase,
     config_path: Path | str | None = None,
-) -> AutoModelForTokenClassification:
+) -> PreTrainedModel:
     """Create a token classification model for citation extraction from Perseus XML documents.
 
     Loads model_name from YAML config file specified in shared/data_loader.py.
@@ -31,7 +32,7 @@ def create_model(
             config_path: Path to YAML config file (default None will load DEFAULT_CONFIG)
 
         Returns:
-            Token classification model with correct label mappings.
+            Token classification model with correct label mappings of subtype AutoModelForTokenClassification.
     """
 
     # Load config

@@ -3,6 +3,7 @@
 Machine learning models for identifying citation structures in classical texts and resolving bibliographic references to canonical URNs.
 
 **Project Status:** 🚧 Early Development
+
 - ✅ Data pipeline implemented (extraction task)
 - ✅ Model initialization and embedding handling
 - ✅ Comprehensive test suite (98 tests passing)
@@ -12,6 +13,7 @@ Machine learning models for identifying citation structures in classical texts a
 ## Installation
 
 **Requirements:**
+
 - Python 3.13+
 - [uv](https://github.com/astral-sh/uv) package manager (recommended) or pip
 
@@ -30,6 +32,7 @@ pip install -e ".[dev]"
 ```
 
 **Dependencies:**
+
 - `transformers` - HuggingFace transformers (DeBERTa models)
 - `torch` - PyTorch for model training
 - `datasets` - HuggingFace datasets library
@@ -246,6 +249,7 @@ trainer.train()
 ```
 
 **Key differences from standard token classification:**
+
 1. **No word alignment** - Special tokens handle tag boundaries
 2. **Simpler labels** - Generated automatically from special token positions
 3. **Malformed XML handling** - BeautifulSoup repairs broken tags
@@ -421,6 +425,7 @@ processed = parse_xml_to_bio(xml)
 ```
 
 **What it does:**
+
 1. Parse XML with BeautifulSoup (repairs malformed XML)
 2. Remove attributes from `<bibl>`, `<quote>`, `<cit>` tags
 3. Replace tags with special tokens surrounded by spaces
@@ -448,6 +453,7 @@ labels = generate_bio_labels(tokens.input_ids[0], loader.tokenizer)
 For nested structures like `<cit><bibl>Hdt. 8.82</bibl></cit>`:
 
 **Strategy: Inner tag takes precedence**
+
 - Text inside `<bibl>` gets `B-BIBL`/`I-BIBL` labels
 - `<cit>` markers present but tokens labeled by innermost tag
 - Model learns nested structure from marker positions
@@ -1289,6 +1295,12 @@ perseus-citation-model/
 │   ├── resolved.jsonl                 # 216K citations with URNs
 │   └── unresolved.jsonl               # 30K citations without URNs
 │
+├── model_data/                        # Partitioned data
+│   ├── extraction                     # Partitions for extraction task
+│   └── resolution                     # Partitions for resolution task
+
+├── outputs/                           # Fine-tuned model weights from training
+
 ├── src/                               # Source code
 │   └── perscit_model/                 # Main package
 │       ├── __init__.py
@@ -1339,6 +1351,7 @@ Instead of word-level BIO tagging with complex alignment, we use **special token
 4. **Generate BIO Labels**: State machine generates labels based on special token positions
 
 **Example:**
+
 ```
 XML:      <bibl>Hdt. 8.82</bibl> some context
 ↓
@@ -1350,6 +1363,7 @@ Labels:   -100  -100          B-  I- I- I- I- -100        O    O       -100
 ```
 
 **Advantages over word-level alignment:**
+
 - No complex subword↔word alignment logic
 - Special tokens guaranteed not to split
 - Simpler, more reliable label generation
@@ -1358,6 +1372,7 @@ Labels:   -100  -100          B-  I- I- I- I- -100        O    O       -100
 ### Model Initialization
 
 **Embedding Resizing:**
+
 - Base DeBERTa vocab: 128,000 tokens
 - +6 special tokens = 128,006 tokens
 - New embeddings initialized to **mean of existing embeddings** (training stability)
