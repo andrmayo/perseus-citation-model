@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-from perscit_model.extraction.data_loader import ExtractionDataLoader, ExtractionData
+from perscit_model.extraction.data_loader import ExtractionDataLoader
 
 
 class TestExtractionDataLoader:
@@ -72,45 +72,46 @@ class TestExtractionDataLoader:
         assert hasattr(result, '__next__')
 
     def test_call_yields_extraction_data(self, temp_jsonl_file, mock_tokenizer):
-        """Test that __call__ yields ExtractionData instances."""
+        """Test that __call__ yields dicts with extraction data."""
         loader = ExtractionDataLoader()
         data = list(loader(temp_jsonl_file))
 
         # Should yield 3 items
         assert len(data) == 3
 
-        # All should be ExtractionData instances
+        # All should be dicts
         for item in data:
-            assert isinstance(item, ExtractionData)
+            assert isinstance(item, dict)
+            assert "xml_context" in item
+            assert "filename" in item
 
     def test_extraction_data_has_correct_fields(self, temp_jsonl_file, mock_tokenizer):
-        """Test that ExtractionData has xml_context and filename fields."""
+        """Test that dicts have xml_context and filename fields."""
         loader = ExtractionDataLoader()
         data = list(loader(temp_jsonl_file))
 
         first_item = data[0]
 
-        # Should have xml_context as BatchEncoding
-        assert "input_ids" in first_item.xml_context
-        assert "attention_mask" in first_item.xml_context
+        # Should have xml_context as raw string (not tokenized)
+        assert isinstance(first_item["xml_context"], str)
+        assert "bibl" in first_item["xml_context"].lower()
 
         # Should have filename as string
-        assert isinstance(first_item.filename, str)
-        assert first_item.filename == "file1.xml"
+        assert isinstance(first_item["filename"], str)
+        assert first_item["filename"] == "file1.xml"
 
     def test_only_tokenizes_xml_context(self, temp_jsonl_file, mock_tokenizer):
-        """Test that only xml_context is tokenized, not other fields."""
+        """Test that xml_context is raw text, not tokenized."""
         loader = ExtractionDataLoader()
         data = list(loader(temp_jsonl_file))
 
         first_item = data[0]
 
-        # xml_context should be tokenized (BatchEncoding)
-        assert "input_ids" in first_item.xml_context
+        # xml_context should be raw string (not tokenized in loader anymore)
+        assert isinstance(first_item["xml_context"], str)
 
-        # filename should NOT be tokenized (just string)
-        assert isinstance(first_item.filename, str)
-        assert not hasattr(first_item.filename, 'input_ids')
+        # filename should be string
+        assert isinstance(first_item["filename"], str)
 
     def test_handles_missing_filename(self, mock_tokenizer):
         """Test that loader handles missing filename field."""
@@ -125,27 +126,27 @@ class TestExtractionDataLoader:
             data = list(loader(temp_path))
 
             # Should default to empty string
-            assert data[0].filename == ""
+            assert data[0]["filename"] == ""
         finally:
             Path(temp_path).unlink()
 
     def test_tokenized_context_correct_length(self, temp_jsonl_file, mock_tokenizer):
-        """Test that tokenized context respects max_length."""
+        """Test that loader returns raw strings (tokenization happens later)."""
         loader = ExtractionDataLoader(max_length=128)
         data = list(loader(temp_jsonl_file))
 
-        # All should be padded/truncated to 128
+        # Should return raw strings, not tokenized
         for item in data:
-            assert len(item.xml_context["input_ids"][0]) == 128
+            assert isinstance(item["xml_context"], str)
 
     def test_preserves_order(self, temp_jsonl_file, mock_tokenizer):
         """Test that data is yielded in file order."""
         loader = ExtractionDataLoader()
         data = list(loader(temp_jsonl_file))
 
-        assert data[0].filename == "file1.xml"
-        assert data[1].filename == "file2.xml"
-        assert data[2].filename == "file3.xml"
+        assert data[0]["filename"] == "file1.xml"
+        assert data[1]["filename"] == "file2.xml"
+        assert data[2]["filename"] == "file3.xml"
 
     def test_memory_efficient_streaming(self, temp_jsonl_file, mock_tokenizer):
         """Test that loader processes one item at a time."""
@@ -154,12 +155,12 @@ class TestExtractionDataLoader:
 
         # Get first item without exhausting generator
         first_item = next(gen)
-        assert isinstance(first_item, ExtractionData)
-        assert first_item.filename == "file1.xml"
+        assert isinstance(first_item, dict)
+        assert first_item["filename"] == "file1.xml"
 
         # Should still have more items
         second_item = next(gen)
-        assert second_item.filename == "file2.xml"
+        assert second_item["filename"] == "file2.xml"
 
     def test_handles_greek_text(self, temp_jsonl_file, mock_tokenizer):
         """Test that loader handles Greek text correctly."""
@@ -168,9 +169,9 @@ class TestExtractionDataLoader:
 
         # Second item has Greek text
         greek_item = data[1]
-        assert "input_ids" in greek_item.xml_context
-        # Should have non-zero tokens (not empty)
-        assert len(greek_item.xml_context["input_ids"][0]) > 0
+        assert isinstance(greek_item["xml_context"], str)
+        # Should contain Greek characters
+        assert "τᾶς" in greek_item["xml_context"] or "quote" in greek_item["xml_context"]
 
     def test_custom_config_path(self, mock_tokenizer):
         """Test loader with custom config path."""

@@ -1,3 +1,5 @@
+#!usr/bin/env python
+
 import logging
 
 from perscit_model.extraction.train import train_pipeline

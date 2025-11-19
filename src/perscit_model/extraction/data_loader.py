@@ -1,10 +1,9 @@
 """Data loader for tag extraction task."""
 
-from dataclasses import dataclass
+import multiprocessing
 from pathlib import Path
 from typing import cast, Generator
 
-import transformers
 from bs4 import BeautifulSoup
 from datasets import Dataset
 
@@ -27,14 +26,6 @@ LABEL2ID = {label: idx for idx, label in enumerate(BIO_LABELS)}
 ID2LABEL = {idx: label for idx, label in enumerate(BIO_LABELS)}
 
 
-@dataclass
-class ExtractionData:
-    """Tokenized data for tag extraction task."""
-
-    xml_context: transformers.BatchEncoding
-    filename: str
-
-
 class ExtractionDataLoader(SharedDataLoader):
     """Data loader for tag extraction task - only tokenizes xml_context."""
 
@@ -42,7 +33,7 @@ class ExtractionDataLoader(SharedDataLoader):
         super().__init__(*args, **kwargs)
         self.add_special_tokens(SPECIAL_TOKENS)
 
-    def __call__(self, filepath: Path | str) -> Generator[ExtractionData, None, None]:
+    def __call__(self, filepath: Path | str) -> Generator[dict, None, None]:
         """
         Load and tokenize data for tag extraction.
 
@@ -50,14 +41,13 @@ class ExtractionDataLoader(SharedDataLoader):
             filepath: Path to JSONL file
 
         Yields:
-            ExtractionData instances with tokenized xml_context
+            Dicts with xml_context and filename
         """
         for item in self.load_jsonl(filepath):
-            cleaned_text = parse_xml_to_bio(item["xml_context"])
-            yield ExtractionData(
-                xml_context=self.tokenize_text(cleaned_text),
-                filename=item.get("filename", ""),
-            )
+            yield {
+                "xml_context": item["xml_context"],
+                "filename": item.get("filename", ""),
+            }
 
 
 def parse_xml_to_bio(xml_context: str) -> str:
@@ -187,6 +177,7 @@ def generate_bio_labels(input_ids: list[int], tokenizer) -> list[int]:
 def create_extraction_dataset(
     jsonl_path: Path | str,
     config_path: Path | str | None = None,
+    num_proc: int | None = None,
 ) -> Dataset:
     """
     Create a HuggingFace Dataset for BIO tag extraction.
@@ -199,27 +190,58 @@ def create_extraction_dataset(
     Args:
         jsonl_path: Path to JSONL file with xml_context field
         config_path: Optional path to YAML config
+        num_proc: Optional number of processes for parallel tokenization
+        (1 = sequential),
+        defaults to number of threads available on system
 
     Returns:
         HuggingFace Dataset with tokenized inputs and BIO labels
     """
     loader = ExtractionDataLoader(config_path=config_path)
 
-    def generate_entries() -> Generator[dict]:
-        for entry in loader(jsonl_path):
-            # Extract data from BatchEncoding (shape is [1, seq_len])
-            input_ids = entry.xml_context.input_ids[0].tolist()
-            attention_mask = entry.xml_context.attention_mask[0].tolist()
+    # if parallel requested
+    if num_proc is None:
+        num_proc = multiprocessing.cpu_count()
 
-            # Generate BIO labels from special token positions
-            labels = generate_bio_labels(input_ids, loader.tokenizer)
+    def path_loader():
+        return loader(jsonl_path)
 
-            yield {
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-                "labels": labels,
-                "filename": entry.filename,
+    dataset = cast(Dataset, Dataset.from_generator(path_loader))
+
+    def process_entries(entries: dict[str, list]) -> dict[str, list]:
+        # Extract data from BatchEncoding (shape is [1, seq_len])
+        extraction_entries = [
+            {
+                "xml_context": loader.tokenize_text(parse_xml_to_bio(entry_content)),
+                "filename": entry_filename,
             }
+            for entry_content, entry_filename in zip(
+                entries["xml_context"], entries["filename"]
+            )
+        ]
 
-    # Create HuggingFace Dataset
-    return cast(Dataset, Dataset.from_generator(generate_entries))
+        input_ids = [
+            entry["xml_context"].input_ids[0].tolist() for entry in extraction_entries
+        ]
+        attention_mask = [
+            entry["xml_context"].attention_mask[0].tolist()
+            for entry in extraction_entries
+        ]
+
+        # Generate BIO labels from special token positions
+        labels = [
+            generate_bio_labels(entry_input_ids, loader.tokenizer)
+            for entry_input_ids in input_ids
+        ]
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels,
+            "filename": entries["filename"],
+        }
+
+    msg = "Tokenizing and labelling tokens"
+    return dataset.map(
+        process_entries, num_proc=num_proc, batched=True, batch_size=1000, desc=msg
+    )

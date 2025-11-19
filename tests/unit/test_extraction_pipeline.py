@@ -74,10 +74,10 @@ class TestExtractionPipeline:
         # Should have 5 examples
         assert len(examples) == 5
 
-        # All should have tokenized xml_context
+        # All should have xml_context field (raw text, not tokenized)
         for example in examples:
-            assert hasattr(example.xml_context, 'input_ids')
-            assert hasattr(example.xml_context, 'attention_mask')
+            assert "xml_context" in example
+            assert isinstance(example["xml_context"], str)
 
     def test_extraction_data_loader_preserves_filenames(self, sample_data_path, mock_tokenizer):
         """Test that filenames are preserved from real data."""
@@ -87,8 +87,8 @@ class TestExtractionPipeline:
 
         # All examples should have filename field
         for example in examples:
-            assert example.filename != ""
-            assert ".xml" in example.filename
+            assert example["filename"] != ""
+            assert ".xml" in example["filename"]
 
     def test_create_dataset_from_real_data(self, sample_data_path, mock_tokenizer):
         """Test creating a dataset from real citation data."""
@@ -180,10 +180,9 @@ class TestExtractionPipeline:
         examples = list(loader(sample_data_path))
         first_example = examples[0]
 
-        # Should have processed xml_context with special tokens
-        # (Mock tokenizer means we can't check exact tokens, but structure should be right)
-        assert hasattr(first_example.xml_context, 'input_ids')
-        assert first_example.xml_context.input_ids.shape[0] == 1  # Batch size 1
+        # Should have xml_context field (raw text)
+        assert "xml_context" in first_example
+        assert isinstance(first_example["xml_context"], str)
 
         # Create dataset
         dataset = create_extraction_dataset(sample_data_path)
@@ -223,7 +222,7 @@ class TestExtractionPipeline:
         first = next(result)
         second = next(result)
 
-        assert first.filename != second.filename or True  # Different or same is fine
+        assert first["filename"] != second["filename"] or True  # Different or same is fine
 
     def test_special_tokens_are_consistent(self):
         """Test that special tokens are consistently defined."""
