@@ -1,6 +1,7 @@
 """Data loader for tag extraction task."""
 
 import multiprocessing
+import warnings
 from pathlib import Path
 from typing import cast, Generator
 
@@ -197,6 +198,15 @@ def create_extraction_dataset(
     Returns:
         HuggingFace Dataset with tokenized inputs and BIO labels
     """
+    # Suppress tokenizer warning about byte fallback in fast tokenizers
+    # This warning appears once per process in parallel tokenization
+    warnings.filterwarnings(
+        "ignore",
+        message=".*byte fallback.*",
+        category=UserWarning,
+        module="transformers.convert_slow_tokenizer"
+    )
+
     loader = ExtractionDataLoader(config_path=config_path)
 
     # if parallel requested
