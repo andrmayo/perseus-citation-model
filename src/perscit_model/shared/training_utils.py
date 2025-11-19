@@ -58,6 +58,27 @@ class TrainingConfig:
         """Load config from YAML file."""
         with open(path) as f:
             config_dict = yaml.safe_load(f)
+
+        # Resolve output_dir to absolute path relative to project root
+        # This ensures outputs/ is created in the project root, not CWD
+        if "output_dir" in config_dict and not Path(config_dict["output_dir"]).is_absolute():
+            # Find project root by looking for pyproject.toml
+            config_path = Path(path).resolve()
+            current = config_path.parent
+            project_root = None
+
+            # Walk up directory tree looking for pyproject.toml
+            while current != current.parent:
+                if (current / "pyproject.toml").exists():
+                    project_root = current
+                    break
+                current = current.parent
+
+            # If we found project root, resolve output_dir relative to it
+            # Otherwise, leave as-is (will be relative to CWD)
+            if project_root:
+                config_dict["output_dir"] = str(project_root / config_dict["output_dir"])
+
         return cls(**config_dict)
 
     def to_yaml(self, path: Union[str, Path]):
