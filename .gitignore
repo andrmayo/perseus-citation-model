@@ -1,6 +1,7 @@
 # Data files (large JSONL files)
 cit_data/resolved.jsonl
 cit_data/unresolved.jsonl
+cit_data/document_mappings.json
 
 # Python
 __pycache__/
