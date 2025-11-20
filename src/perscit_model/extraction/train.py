@@ -3,6 +3,7 @@
 import json
 import logging
 import random
+import shutil
 from pathlib import Path
 from typing import cast
 
@@ -132,6 +133,7 @@ def split_data(
     # Load all data and group by filename to prevent data leakage
     logger.info(f"Loading data from {input_file}")
     from collections import defaultdict
+
     examples_by_file = defaultdict(list)
 
     with open(input_file) as f:
@@ -140,7 +142,9 @@ def split_data(
             examples_by_file[example.get("filename", "")].append(example)
 
     total_examples = sum(len(examples) for examples in examples_by_file.values())
-    logger.info(f"Loaded {total_examples} examples from {len(examples_by_file)} unique files")
+    logger.info(
+        f"Loaded {total_examples} examples from {len(examples_by_file)} unique files"
+    )
 
     # Split by files (not individual examples) to prevent overlapping contexts
     # Try multiple shuffles to find a split that's close to target ratios
@@ -150,7 +154,7 @@ def split_data(
     max_attempts = 100
     tolerance = 0.02  # Allow 2% deviation from target ratios
     best_split = None
-    best_deviation = float('inf')
+    best_deviation = float("inf")
 
     for attempt in range(max_attempts):
         random.shuffle(filenames)
@@ -178,13 +182,20 @@ def split_data(
         max_deviation = max(
             abs(actual_train_ratio - train_ratio),
             abs(actual_val_ratio - val_ratio),
-            abs(actual_test_ratio - test_ratio)
+            abs(actual_test_ratio - test_ratio),
         )
 
         # Keep track of best split
         if max_deviation < best_deviation:
             best_deviation = max_deviation
-            best_split = (train_files, val_files, test_files, train_count, val_count, test_count)
+            best_split = (
+                train_files,
+                val_files,
+                test_files,
+                train_count,
+                val_count,
+                test_count,
+            )
 
         # If within tolerance, use this split
         if max_deviation <= tolerance:
@@ -199,13 +210,15 @@ def split_data(
             f"Could not find split within {tolerance:.1%} tolerance after {max_attempts} attempts. "
             f"Using best split found (max deviation: {best_deviation:.1%})"
         )
-        train_files, val_files, test_files, train_count, val_count, test_count = best_split
+        train_files, val_files, test_files, train_count, val_count, test_count = (
+            best_split
+        )
 
     # Log the actual distribution
     logger.info(
-        f"Split ratios - Train: {train_count}/{total_examples} ({train_count/total_examples:.1%}), "
-        f"Val: {val_count}/{total_examples} ({val_count/total_examples:.1%}), "
-        f"Test: {test_count}/{total_examples} ({test_count/total_examples:.1%})"
+        f"Split ratios - Train: {train_count}/{total_examples} ({train_count / total_examples:.1%}), "
+        f"Val: {val_count}/{total_examples} ({val_count / total_examples:.1%}), "
+        f"Test: {test_count}/{total_examples} ({test_count / total_examples:.1%})"
     )
 
     # Collect all examples for each split (now we know it's balanced)
@@ -455,30 +468,58 @@ def train(
         else trainer.train()
     )
 
-    # Save final model
-    logger.info(f"Saving model to {training_args.output_dir}")
-    trainer.save_model()
+    # Save final model to timestamped directory
+    from datetime import datetime
 
-    # Save training metrics
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    final_model_dir = Path(training_args.output_dir) / f"final-model-{timestamp}"
+    logger.info(f"Saving final model to {final_model_dir}")
+    trainer.save_model(str(final_model_dir))
+
+    # Save training metrics in the final model directory
     metrics = train_results.metrics
     trainer.log_metrics("train", metrics)
-    trainer.save_metrics("train", metrics)
+    # Save metrics to final model dir as well
+    import json
+
+    with open(final_model_dir / "train_results.json", "w") as f:
+        json.dump(metrics, f, indent=4)
+
+    # Save state to final model dir
     trainer.save_state()
+    # Also copy state to final model dir
+    state_file = Path(training_args.output_dir) / "trainer_state.json"
+    if state_file.exists():
+        shutil.copy(state_file, final_model_dir / "trainer_state.json")
 
     # Eval on validation set
     if val_path:
         logger.info("Evaluating on validation set...")
         val_metrics = trainer.evaluate()
         trainer.log_metrics("eval", val_metrics)
-        trainer.save_metrics("eval", val_metrics)
+        # Save to final model dir
+        with open(final_model_dir / "eval_results.json", "w") as f:
+            json.dump(val_metrics, f, indent=4)
 
     # Eval on test set
     if test_path:
         logger.info("Evaluating on test set ...")
         test_metrics = trainer.evaluate(datasets["test"], metric_key_prefix="test")  # type: ignore[arg-type]
         trainer.log_metrics("test", test_metrics)
-        trainer.save_metrics("test", test_metrics)
-    logger.info("Training complete")
+        # Save to final model dir
+        with open(final_model_dir / "test_results.json", "w") as f:
+            json.dump(test_metrics, f, indent=4)
+
+    # Save all results together
+    all_results = {**metrics}
+    if val_path:
+        all_results.update(val_metrics)
+    if test_path:
+        all_results.update(test_metrics)
+    with open(final_model_dir / "all_results.json", "w") as f:
+        json.dump(all_results, f, indent=4)
+
+    logger.info(f"Training complete. Final model saved to {final_model_dir}")
     return trainer
 
 

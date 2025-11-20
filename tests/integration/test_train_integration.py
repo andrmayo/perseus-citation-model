@@ -146,10 +146,14 @@ class TestTrain:
             batch_size=2,
         )
 
-        # Model files should be saved
-        assert (temp_output_dir / "config.json").exists()
-        assert (temp_output_dir / "model.safetensors").exists() or (
-            temp_output_dir / "pytorch_model.bin"
+        # Model files should be saved in timestamped final-model directory
+        final_model_dirs = list(temp_output_dir.glob("final-model-*"))
+        assert len(final_model_dirs) == 1, "Should have exactly one final model directory"
+        final_model_dir = final_model_dirs[0]
+
+        assert (final_model_dir / "config.json").exists()
+        assert (final_model_dir / "model.safetensors").exists() or (
+            final_model_dir / "pytorch_model.bin"
         ).exists()
 
     def test_train_saves_metrics(self, sample_data_path, temp_output_dir):
@@ -161,8 +165,12 @@ class TestTrain:
             batch_size=2,
         )
 
-        # Metrics should be saved
-        assert (temp_output_dir / "train_results.json").exists()
+        # Metrics should be saved in timestamped final-model directory
+        final_model_dirs = list(temp_output_dir.glob("final-model-*"))
+        assert len(final_model_dirs) == 1, "Should have exactly one final model directory"
+        final_model_dir = final_model_dirs[0]
+
+        assert (final_model_dir / "train_results.json").exists()
 
     def test_train_with_test_set(self, sample_data_path, temp_output_dir):
         """Test training with test set evaluation."""
@@ -175,8 +183,14 @@ class TestTrain:
             batch_size=2,
         )
 
-        # Test metrics should be saved
-        assert (temp_output_dir / "test_results.json").exists()
+        # Test metrics should be saved in timestamped final-model directory
+        final_model_dirs = list(temp_output_dir.glob("final-model-*"))
+        assert len(final_model_dirs) == 1, "Should have exactly one final model directory"
+        final_model_dir = final_model_dirs[0]
+
+        assert (final_model_dir / "test_results.json").exists()
+        assert (final_model_dir / "eval_results.json").exists()
+        assert (final_model_dir / "all_results.json").exists()
 
     def test_train_seed_reproducibility(self, sample_data_path, tmp_path):
         """Test that same seed produces deterministic results."""
