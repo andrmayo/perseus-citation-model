@@ -1,13 +1,18 @@
 #!/usr/bin/env python
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from perscit_model.extraction.train import train_pipeline
 
+log_dir = Path(__file__).parent.parent / "outputs" / "logs" / "extraction"
+log_dir.mkdir(parents=True, exist_ok=True)
+log_path = log_dir / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+
 logging.basicConfig(
     level=logging.INFO,
-    filename=Path(__file__).parent.parent / "outputs" / "logs" / "extraction",
+    filename=log_dir / "train_log.log",
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
