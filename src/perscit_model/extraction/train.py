@@ -88,6 +88,7 @@ def split_data(
 
     # Define current split configuration
     current_split_config = {
+        "split_strategy": "by_filename",  # Split by file to prevent data leakage
         "train_ratio": train_ratio,
         "val_ratio": val_ratio,
         "test_ratio": test_ratio,
@@ -128,27 +129,89 @@ def split_data(
                 path.unlink()
                 logger.info(f"Deleted existing file: {path}")
 
-    # Load all data
+    # Load all data and group by filename to prevent data leakage
     logger.info(f"Loading data from {input_file}")
-    data = []
+    from collections import defaultdict
+    examples_by_file = defaultdict(list)
+
     with open(input_file) as f:
         for line in f:
-            data.append(json.loads(line))
+            example = json.loads(line)
+            examples_by_file[example.get("filename", "")].append(example)
 
-    logger.info(f"Loaded {len(data)} examples")
+    total_examples = sum(len(examples) for examples in examples_by_file.values())
+    logger.info(f"Loaded {total_examples} examples from {len(examples_by_file)} unique files")
 
-    # Shuffle with seed
+    # Split by files (not individual examples) to prevent overlapping contexts
+    # Try multiple shuffles to find a split that's close to target ratios
     random.seed(seed)
-    random.shuffle(data)
+    filenames = list(examples_by_file.keys())
 
-    # Calculate split indices
-    n_train = int(len(data) * train_ratio)
-    n_val = int(len(data) * val_ratio)
+    max_attempts = 100
+    tolerance = 0.02  # Allow 2% deviation from target ratios
+    best_split = None
+    best_deviation = float('inf')
 
-    # Split data
-    train_data = data[:n_train]
-    val_data = data[n_train : n_train + n_val]
-    test_data = data[n_train + n_val :]
+    for attempt in range(max_attempts):
+        random.shuffle(filenames)
+
+        # Calculate split indices for files
+        n_train_files = int(len(filenames) * train_ratio)
+        n_val_files = int(len(filenames) * val_ratio)
+
+        # Split filenames into groups
+        train_files = filenames[:n_train_files]
+        val_files = filenames[n_train_files : n_train_files + n_val_files]
+        test_files = filenames[n_train_files + n_val_files :]
+
+        # Count examples in each split (fast - just sum lengths)
+        train_count = sum(len(examples_by_file[f]) for f in train_files)
+        val_count = sum(len(examples_by_file[f]) for f in val_files)
+        test_count = sum(len(examples_by_file[f]) for f in test_files)
+
+        # Calculate actual ratios
+        actual_train_ratio = train_count / total_examples
+        actual_val_ratio = val_count / total_examples
+        actual_test_ratio = test_count / total_examples
+
+        # Calculate deviation from target
+        max_deviation = max(
+            abs(actual_train_ratio - train_ratio),
+            abs(actual_val_ratio - val_ratio),
+            abs(actual_test_ratio - test_ratio)
+        )
+
+        # Keep track of best split
+        if max_deviation < best_deviation:
+            best_deviation = max_deviation
+            best_split = (train_files, val_files, test_files, train_count, val_count, test_count)
+
+        # If within tolerance, use this split
+        if max_deviation <= tolerance:
+            logger.info(
+                f"Found acceptable split after {attempt + 1} attempts "
+                f"(max deviation: {max_deviation:.1%})"
+            )
+            break
+    else:
+        # Use best split found
+        logger.warning(
+            f"Could not find split within {tolerance:.1%} tolerance after {max_attempts} attempts. "
+            f"Using best split found (max deviation: {best_deviation:.1%})"
+        )
+        train_files, val_files, test_files, train_count, val_count, test_count = best_split
+
+    # Log the actual distribution
+    logger.info(
+        f"Split ratios - Train: {train_count}/{total_examples} ({train_count/total_examples:.1%}), "
+        f"Val: {val_count}/{total_examples} ({val_count/total_examples:.1%}), "
+        f"Test: {test_count}/{total_examples} ({test_count/total_examples:.1%})"
+    )
+
+    # Collect all examples for each split (now we know it's balanced)
+    train_data = [ex for f in train_files for ex in examples_by_file[f]]
+    val_data = [ex for f in val_files for ex in examples_by_file[f]]
+    test_data = [ex for f in test_files for ex in examples_by_file[f]]
 
     # Save splits
     paths = []

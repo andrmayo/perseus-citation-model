@@ -247,10 +247,10 @@ class TestTrainPipeline:
         data_dir = tmp_path / "data"
         data_dir.mkdir(parents=True)
 
-        # Copy larger sample data (20 examples) to simulate resolved.jsonl
-        # Need more examples for proper train/val/test splits
+        # Copy larger sample data (47 examples from 10 files) to simulate resolved.jsonl
+        # Need examples from multiple files for proper file-based train/val/test splits
         sample_path = (
-            Path(__file__).parent.parent / "fixtures" / "sample_extraction_20.jsonl"
+            Path(__file__).parent.parent / "fixtures" / "sample_extraction_50.jsonl"
         )
 
         # Create a fake cit_data directory structure

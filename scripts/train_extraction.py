@@ -1,12 +1,17 @@
 #!/usr/bin/env python
 
 import logging
+from pathlib import Path
 
 from perscit_model.extraction.train import train_pipeline
 
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=logging.INFO,
+    filename=Path(__file__).parent.parent / "outputs" / "logs" / "extraction",
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+
+logging.info("Starting training for XML extraction...")
 
 train_pipeline()
 
