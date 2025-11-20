@@ -30,10 +30,10 @@ htmlcov/
 .tox/
 
 # Model outputs and training artifacts
-outputs/
-model_data/
-logs/
-runs/
+outputs/*
+model_data/*
+logs/*
+runs/*
 wandb/
 *.pt
 *.pth
