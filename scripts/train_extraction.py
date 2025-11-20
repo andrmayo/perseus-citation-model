@@ -10,11 +10,26 @@ log_dir = Path(__file__).parent.parent / "outputs" / "logs" / "extraction"
 log_dir.mkdir(parents=True, exist_ok=True)
 log_path = log_dir / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
 
-logging.basicConfig(
-    level=logging.INFO,
-    filename=log_dir / "train_log.log",
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+# Configure logging to both file and console
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# File handler - timestamped log file
+file_handler = logging.FileHandler(log_path)
+file_handler.setLevel(logging.INFO)
+
+# Console handler - stdout
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+# Format for both handlers
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+# Add both handlers to root logger
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
 
 logging.info("Starting training for XML extraction...")
 
