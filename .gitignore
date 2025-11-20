@@ -32,6 +32,7 @@ htmlcov/
 # Model outputs and training artifacts
 outputs/*
 model_data/*
+tarballs/extraction*
 logs/*
 runs/*
 wandb/
