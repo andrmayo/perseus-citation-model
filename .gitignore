@@ -30,7 +30,7 @@ htmlcov/
 .tox/
 
 # Model outputs and training artifacts
-outputs/*
+outputs/**/*
 model_data/*
 tarballs/extraction*
 logs/*
@@ -41,6 +41,10 @@ wandb/
 *.ckpt
 *.safetensors
 *.bin
+
+# keep directory structure in outputs/
+!outputs/.gitkeep
+!outputs/**/.gitkeep
 
 # Jupyter
 .ipynb_checkpoints/
