@@ -19,6 +19,15 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=9.0.1", "pytest-mock>=3.15.1"]
+all = ["perscit_model[dev]"]
+
+[tool.uv]
+# Default to GPU-enabled PyTorch (CUDA 12.1)
+# For CPU-only (smaller install), override with: uv sync --extra-index-url https://download.pytorch.org/whl/cpu
+# NOTE: You must use --index-strategy unsafe-best-match when syncing to allow uv to fetch
+# the latest versions of dependencies from PyPI (the PyTorch index has outdated versions)
+# Example: uv sync --extra dev --index-strategy unsafe-best-match
+extra-index-url = ["https://download.pytorch.org/whl/cu121"]
 
 [build-system]
 requires = ["hatchling"]
