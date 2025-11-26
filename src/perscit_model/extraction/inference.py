@@ -13,29 +13,43 @@ from perscit_model.extraction.data_loader import (
 import torch
 from transformers import AutoModelForTokenClassification
 
-MODEL_DIR = Path(__file__).parent.parent.parent.parent / "outputs" / "extraction"
+MODEL_TRAIN_DIR = Path(__file__).parent.parent.parent.parent / "outputs" / "extraction"
+MODEL_SAVE_DIR = (
+    Path(__file__).parent.parent.parent.parent / "outputs" / "models" / "extraction"
+)
 
 
-def get_model(path: str | Path = MODEL_DIR):
-    if isinstance(path, str):
-        try:
-            path = Path(path)
-        except Exception as e:
-            print(f"Error parsing string {path} as path: {e}", file=sys.stderr)
-            sys.exit(1)
-    if not path.exists() and path.is_dir():
-        raise FileNotFoundError(f"No directory found at {path}")
+def get_model(path: str | Path | None = None, last_trained=False):
+    def check_path(p: str | Path) -> Path:
+        if isinstance(p, str):
+            try:
+                p = Path(p)
+            except Exception as e:
+                print(f"Error parsing string {p} as path: {e}", file=sys.stderr)
+                sys.exit(1)
+        if not p.exists() and p.is_dir():
+            raise FileNotFoundError(f"No directory found at {p}")
+        return p
 
-    model_dirs = path.glob("final-model*")
+    if last_trained:
+        if path is None:
+            path = MODEL_TRAIN_DIR
 
-    if not model_dirs:
-        raise FileNotFoundError(
-            f"No final models with directory name 'final-model*' found at {path}"
-        )
+        path = check_path(path)
+        model_dirs = list(path.glob("final-model*"))
 
-    latest_model_path = max(model_dirs, key=lambda x: x.stat().st_mtime)
+        if not model_dirs:
+            raise FileNotFoundError(
+                f"No final models with directory name 'final-model*' found at {path}"
+            )
 
-    return load_model_from_checkpoint(latest_model_path)
+        model_path = max(model_dirs, key=lambda x: x.stat().st_mtime)
+
+    else:
+        if path is None:
+            path = MODEL_SAVE_DIR
+        model_path = check_path(path)
+    return load_model_from_checkpoint(model_path)
 
 
 def predict(text: str, **kwargs):
