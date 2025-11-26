@@ -234,9 +234,9 @@ def split_data(
         ("test", test_data),
     ]:
         output_path = output_dir / f"{split_name}.jsonl"
-        with open(output_path, "w") as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             for example in split_data:
-                f.write(json.dumps(example) + "\n")
+                f.write(json.dumps(example, ensure_ascii=False) + "\n")
         logger.info(f"{split_name}: {len(split_data)} examples -> {output_path}")
         paths.append(output_path)
 
