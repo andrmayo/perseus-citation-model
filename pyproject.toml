@@ -23,7 +23,8 @@ all = ["perscit_model[dev]"]
 
 [tool.uv]
 # Default to GPU-enabled PyTorch (CUDA 12.1)
-# For CPU-only (smaller install), override with: uv sync --extra-index-url https://download.pytorch.org/whl/cpu
+# For CPU-only (smaller install), override with: 
+# uv sync --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
 # NOTE: You must use --index-strategy unsafe-best-match when syncing to allow uv to fetch
 # the latest versions of dependencies from PyPI (the PyTorch index has outdated versions)
 # Example: uv sync --extra dev --index-strategy unsafe-best-match
@@ -34,8 +35,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
-testpaths = ["tests/unit"]  # Default: only run fast unit tests
+testpaths = ["tests/unit"] # Default: only run fast unit tests
 pythonpath = ["src"]
 # Clean up temp directories more aggressively (keep only last 3 runs)
 tmp_path_retention_count = 3
-tmp_path_retention_policy = "failed"  # Only keep failed test dirs for debugging
+tmp_path_retention_policy = "failed" # Only keep failed test dirs for debugging
