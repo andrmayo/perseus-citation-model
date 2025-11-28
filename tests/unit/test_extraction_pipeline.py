@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from perscit_model.extraction.data_loader import (
-    parse_xml_to_bio,
     ExtractionDataLoader,
     create_extraction_dataset,
     LABEL2ID,
@@ -25,7 +24,7 @@ class TestExtractionPipeline:
         """Test that parse_xml_to_bio correctly replaces citation tags."""
         xml = '<bibl n="Hdt. 8.82">Hdt. 8.82</bibl> some context'
 
-        result = parse_xml_to_bio(xml)
+        result = ExtractionDataLoader.parse_xml_to_bio(xml)
 
         # Should replace <bibl> tags with special tokens
         assert "[BIBL_START]" in result
@@ -40,7 +39,7 @@ class TestExtractionPipeline:
         """Test that attributes are removed from citation tags."""
         xml = '<bibl n="Hdt. 8.82" type="ancient">Hdt. 8.82</bibl>'
 
-        result = parse_xml_to_bio(xml)
+        result = ExtractionDataLoader.parse_xml_to_bio(xml)
 
         # Attributes should be removed
         assert 'n=' not in result
@@ -50,7 +49,7 @@ class TestExtractionPipeline:
         """Test that non-citation tags are preserved."""
         xml = '<bibl>Hdt. 8.82</bibl> in <title>Histories</title>'
 
-        result = parse_xml_to_bio(xml)
+        result = ExtractionDataLoader.parse_xml_to_bio(xml)
 
         # <bibl> should be replaced
         assert "[BIBL_START]" in result
@@ -131,7 +130,7 @@ class TestExtractionPipeline:
         xml = '<cit><bibl>Hdt. 1.1</bibl><quote>some text</quote></cit>'
 
         # Parse XML
-        processed = parse_xml_to_bio(xml)
+        processed = ExtractionDataLoader.parse_xml_to_bio(xml)
 
         # Should have all special tokens
         assert "[CIT_START]" in processed
@@ -145,7 +144,7 @@ class TestExtractionPipeline:
         """Test pipeline with multiple citations in sequence."""
         xml = '<bibl>Hdt. 1.1</bibl> and <bibl>Thuc. 2.1</bibl>'
 
-        processed = parse_xml_to_bio(xml)
+        processed = ExtractionDataLoader.parse_xml_to_bio(xml)
 
         # Should have two sets of BIBL tokens
         assert processed.count("[BIBL_START]") == 2
@@ -155,7 +154,7 @@ class TestExtractionPipeline:
         """Test that quote tags are properly handled."""
         xml = 'He said <quote>hello world</quote> to them'
 
-        processed = parse_xml_to_bio(xml)
+        processed = ExtractionDataLoader.parse_xml_to_bio(xml)
 
         assert "[QUOTE_START]" in processed
         assert "[QUOTE_END]" in processed
@@ -167,7 +166,7 @@ class TestExtractionPipeline:
         xml = '<bibl>Hdt. 1.1 some text'
 
         # Should not raise an error
-        processed = parse_xml_to_bio(xml)
+        processed = ExtractionDataLoader.parse_xml_to_bio(xml)
 
         # BeautifulSoup should auto-close the tag
         assert isinstance(processed, str)

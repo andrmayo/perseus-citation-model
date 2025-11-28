@@ -6,7 +6,6 @@ from typing import Callable, cast
 from perscit_model.extraction.model import load_model_from_checkpoint
 from perscit_model.extraction.data_loader import (
     ExtractionDataLoader,
-    parse_xml_to_bio,
     ID2LABEL,
 )
 
@@ -53,6 +52,20 @@ def get_model(path: str | Path | None = None, last_trained=False):
 
 
 def predict(text: str, **kwargs):
+    """
+    Run inference on plain text (without XML tags).
+
+    Args:
+        text: Plain text without XML citation tags
+        **kwargs: Additional arguments for model/loader
+
+    Returns:
+        List of BIO labels for each token
+
+    Note:
+        Input should be plain text. If you have XML with tags, strip them first.
+        The model predicts where <bibl>, <quote>, and <cit> tags should be.
+    """
     loader_args = {
         k: v
         for k, v in kwargs.items()
@@ -61,7 +74,10 @@ def predict(text: str, **kwargs):
     model = cast(Callable, get_model())
     pred_args = {k: v for k, v in kwargs.items() if k not in loader_args}
     loader = ExtractionDataLoader(**loader_args)
+
+    # Tokenize plain text (no special token conversion during inference)
     inputs = loader.tokenize_text(text)
+
     with torch.no_grad():
         outputs = model(**inputs, **pred_args)
     logits = outputs.logits
