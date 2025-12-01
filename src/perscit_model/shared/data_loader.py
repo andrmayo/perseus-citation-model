@@ -19,6 +19,7 @@ class SharedDataLoader:
         max_length: int | None = None,
         config_path: str | Path | None = None,
         special_tokens: str | list[str] | None = None,
+        use_fast: bool = True,
     ):
         model_name_from_config, max_length_from_config = self.from_yaml(config_path)
         self.model_name = model_name if model_name else model_name_from_config
@@ -27,6 +28,7 @@ class SharedDataLoader:
         if isinstance(special_tokens, str):
             special_tokens = [special_tokens]
         self.special_tokens = special_tokens if special_tokens is not None else []
+        self._use_fast = use_fast
 
     @staticmethod
     def from_yaml(config_path: Path | str | None = None) -> tuple[str, int]:
@@ -77,17 +79,34 @@ class SharedDataLoader:
             Pretrained tokenizer for the model
         """
         if self._tokenizer is None:
-            self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                self.model_name, use_fast=self.use_fast
+            )
             if self.special_tokens:
                 self._tokenizer.add_special_tokens(
                     {"additional_special_tokens": self.special_tokens}
                 )
         return self._tokenizer
 
+    @property
+    def use_fast(self) -> bool:
+        return self._use_fast
+
+    @use_fast.setter
+    def use_fast(self, new_setting: bool) -> None:
+        if self._tokenizer is None:
+            print(
+                f"tokenizer not yet created: when it is, parameter use_fast = {self._use_fast}"
+            )
+            self._use_fast = new_setting
+        else:
+            print(
+                f"tokenizer already created with use_fast = {self._use_fast}, which has NOT been changed"
+            )
+
     def tokenize_text(
         self,
         text: str,
-        use_fast=True,
         max_length: int | None = None,
         **kwargs,
     ) -> transformers.BatchEncoding:
@@ -109,7 +128,6 @@ class SharedDataLoader:
             truncation=True,
             padding="max_length",
             max_length=max_length,
-            use_fast=use_fast,
             return_tensors="pt",
             **kwargs,
         )
