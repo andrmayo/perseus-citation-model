@@ -87,7 +87,9 @@ class SharedDataLoader:
     def tokenize_text(
         self,
         text: str,
+        use_fast=True,
         max_length: int | None = None,
+        **kwargs,
     ) -> transformers.BatchEncoding:
         """
         Tokenize text with the given tokenizer.
@@ -107,5 +109,7 @@ class SharedDataLoader:
             truncation=True,
             padding="max_length",
             max_length=max_length,
+            use_fast=use_fast,
             return_tensors="pt",
+            **kwargs,
         )
