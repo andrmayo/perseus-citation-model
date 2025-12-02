@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from typing import Callable, Iterable, cast
+from typing import Callable, cast
 
 import transformers
 from torch import IntTensor
@@ -25,12 +25,9 @@ class InferenceModel:
     ):
         self.model = cast(
             transformers.AutoModelForTokenClassification,
-            InferenceModel.load_model(None, last_trained),
+            InferenceModel.load_model(model_path, last_trained),
         )
         self.loader = ExtractionDataLoader(**kwargs)
-        self.delimiters: list[
-            str
-        ] = []  # keep track of delimiter characters used by tokenizer
 
     @staticmethod
     def load_model(path: str | Path | None = None, last_trained=False):
@@ -126,33 +123,62 @@ class InferenceModel:
         offset_mapping: IntTensor,
         labels: list[str],
     ) -> str:
-        string_tokens = self.loader.tokenizer.decode(tokens)
-        new_xml: list[str] = []
         """Inserts XML tags for a single text."""
 
-        def process_offset(token: str, offset: IntTensor, label: str) -> str:
-            subtext = xml[offset[0] : offset[1]]
-            output = []
-            for i, char in enumerate(subtext):
-                if char != token[0]:
-                    output.append(char)
-                    continue
-                if label == "B-BIBL":
-                    output.append(f"<bibl>{subtext[i:]}")
-                    break
-                elif label == "B-QUOTE":
-                    output.append(f"<quote>{subtext[i:]}")
-                    break
-                elif label == "B-CIT":
-                    output.append(f"<cit>{subtext[i:]}")
-                    break
-            return "".join(output)
+        special_token_ids = {
+            getattr(self.loader.tokenizer, "cls_token_id", None),
+            getattr(self.loader.tokenizer, "sep_token_id", None),
+            getattr(self.loader.tokenizer, "pad_token_id", None),
+        }
 
-        new_xml = [
-            process_offset(st, cast(IntTensor, om), lbl)
-            for st, om, lbl in zip(string_tokens, offset_mapping, labels)
+        special_token_ids.discard(None)
+
+        # filter tokens
+        token_spans = [
+            (offset[0].item(), offset[1].item(), label)
+            for token_id, offset, label in zip(tokens, offset_mapping, labels)
+            if token_id.item() not in special_token_ids
+            and offset[0].item() != offset[1].item()
         ]
-        return "".join(new_xml)
+
+        # build entities according to citation labels
+        entities = []
+        current_entity = None
+
+        for start, end, label in token_spans:
+            if label == "0":
+                if current_entity:
+                    entities.append(current_entity)
+                    current_entity = None
+            elif label.startswith("B-"):
+                if current_entity:
+                    entities.append(current_entity)
+                current_entity = {"type": label[2:], "start": start, "end": end}
+            elif label.startswith("I-"):
+                if current_entity:
+                    current_entity["end"] = end
+                else:
+                    current_entity = {"type": label[2:], "start": start, "end": end}
+
+        if current_entity:
+            entities.append(current_entity)
+
+        # build text segments
+        segments = []
+        last_pos = 0
+
+        for entity in entities:
+            if last_pos < entity["start"]:
+                segments.append(xml[last_pos : entity["start"]])
+
+            tag = entity["type"].lower()
+            segments.append(f"<{tag}>{xml[entity['start'] : entity['end']]}</{tag}>")
+            last_pos = entity["end"]
+
+        if last_pos < len(xml):
+            segments.append(xml[last_pos:])
+
+        return "".join(segments)
 
     def process_text(
         self, text: str, **kwargs
