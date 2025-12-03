@@ -2,9 +2,11 @@
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import cast
 
+import torch
 import transformers
 from seqeval.metrics import (
     accuracy_score,
@@ -19,9 +21,6 @@ from perscit_model.extraction.data_loader import ID2LABEL, ExtractionDataLoader
 from perscit_model.extraction.inference import InferenceModel
 
 logger = logging.getLogger(__name__)
-
-
-import re
 
 # Compile regex patterns once for better performance
 _CIT_OPEN_PATTERN = re.compile(r"<cit[^>]*>")
@@ -59,7 +58,7 @@ def evaluate_model(
     model_path: Path | str | None = None,
     test_path: Path | str = "model_data/extraction/test.jsonl",
     output_dir: Path | str = "outputs/extraction/test",
-    batch_size: int = 32,
+    batch_size: int | None = None,
     last_trained: bool = True,
 ) -> dict:
     """
@@ -82,6 +81,14 @@ def evaluate_model(
     Returns:
         Dict of evaluation metrics
     """
+
+    # set batch_size depending on whether GPU or CPU is available
+    if batch_size is None:
+        if torch.cuda.is_available():
+            batch_size = 128
+        else:
+            batch_size = 32
+
     # Setup paths
     test_path = Path(test_path)
     output_dir = Path(output_dir)
@@ -116,16 +123,14 @@ def evaluate_model(
         stripped_text = strip_xml_tags(example["xml_context"])
 
         # Tokenize to check length and truncate if needed
-        stripped_tokens = loader.tokenizer(
-            stripped_text,
-            truncation=True,
-            max_length=max_length
+        stripped_tokens = cast(
+            transformers.BatchEncoding,
+            loader.tokenizer(stripped_text, truncation=True, max_length=max_length)
         )
         # Decode back to get truncated text
         if len(stripped_tokens["input_ids"]) >= max_length:
             stripped_text = loader.tokenizer.decode(
-                stripped_tokens["input_ids"],
-                skip_special_tokens=True
+                stripped_tokens["input_ids"], skip_special_tokens=True
             )
 
         all_stripped_texts.append(stripped_text)
@@ -134,7 +139,9 @@ def evaluate_model(
         parsed_text = ExtractionDataLoader.parse_xml_to_bio(example["xml_context"])
         ground_truth_inputs = cast(
             transformers.BatchEncoding,
-            loader.tokenizer(parsed_text, truncation=True, max_length=max_length, return_tensors="pt")
+            loader.tokenizer(
+                parsed_text, truncation=True, max_length=max_length, return_tensors="pt"
+            ),
         )
         ground_truth_labels_ids = loader.generate_bio_labels(
             ground_truth_inputs["input_ids"][0].tolist()
@@ -142,9 +149,7 @@ def evaluate_model(
         true_labels_clean, _ = loader.strip_special_tokens_and_align_labels(
             ground_truth_inputs["input_ids"][0].tolist(), ground_truth_labels_ids
         )
-        true_labels = [
-            ID2LABEL.get(label_id, "O") for label_id in true_labels_clean
-        ]
+        true_labels = [ID2LABEL.get(label_id, "O") for label_id in true_labels_clean]
         all_ground_truth_labels.append(true_labels)
 
     # Process all examples

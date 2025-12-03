@@ -28,7 +28,7 @@ def main():
         help="Directory to save results",
     )
     parser.add_argument(
-        "--batch-size", type=int, default=64, help="Batch size for inference"
+        "--batch-size", type=int, default=None, help="Batch size for inference (default: auto-detect based on GPU availability - 128 for GPU, 32 for CPU)"
     )
     parser.add_argument(
         "--no-last-trained",
