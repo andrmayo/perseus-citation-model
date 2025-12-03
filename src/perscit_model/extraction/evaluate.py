@@ -120,30 +120,34 @@ def evaluate_model(
             stripped_texts, batch_size=len(stripped_texts)
         )
 
-        # For each example in batch, get ground truth and compare
+        # Compute ground truth labels for entire batch at once
+        parsed_texts = [
+            ExtractionDataLoader.parse_xml_to_bio(ex["xml_context"])
+            for ex in batch_examples
+        ]
+        ground_truth_batch = loader.tokenizer(
+            parsed_texts,
+            padding=True,
+            truncation=True,
+            return_tensors="pt",
+        )
+
+        # Generate labels for all texts in batch
+        batch_true_labels = []
+        for input_ids in ground_truth_batch["input_ids"]:
+            labels_ids = loader.generate_bio_labels(input_ids.tolist())
+            true_labels_clean, _ = loader.strip_special_tokens_and_align_labels(
+                input_ids.tolist(), labels_ids
+            )
+            true_labels = [ID2LABEL.get(label_id, "O") for label_id in true_labels_clean]
+            batch_true_labels.append(true_labels)
+
+        # For each example in batch, compare predictions with ground truth
         for j, (example, (inputs, pred_labels)) in enumerate(
             zip(batch_examples, batch_results)
         ):
-            # Get ground truth labels by re-processing the original XML
-
             original_text = example["xml_context"]
-
-            # Parse XML to special tokens, then tokenize
-            parsed_text = ExtractionDataLoader.parse_xml_to_bio(original_text)
-            ground_truth_inputs = cast(
-                transformers.BatchEncoding, loader.tokenize_text(parsed_text)
-            )
-            ground_truth_labels_ids = loader.generate_bio_labels(
-                ground_truth_inputs["input_ids"][0].tolist()
-            )
-
-            # Strip special tokens from ground truth to match inference
-            true_labels_clean, _ = loader.strip_special_tokens_and_align_labels(
-                ground_truth_inputs["input_ids"][0].tolist(), ground_truth_labels_ids
-            )
-            true_labels = [
-                ID2LABEL.get(label_id, "O") for label_id in true_labels_clean
-            ]
+            true_labels = batch_true_labels[j]
 
             # Filter out special tokens (label = -100) from both
             filtered_true = []
