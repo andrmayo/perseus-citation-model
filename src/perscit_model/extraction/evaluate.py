@@ -102,7 +102,7 @@ def evaluate_model(
 
     logger.info("Running inference on test set...")
 
-    # Process in batches
+    # Process in batches using process_batch method
     for i in tqdm(range(0, len(test_examples), batch_size)):
         batch_examples = test_examples[i:i + batch_size]
 
@@ -110,35 +110,11 @@ def evaluate_model(
         xml_texts = [ex['xml_context'] for ex in batch_examples]
         stripped_texts = [strip_xml_tags(text) for text in xml_texts]
 
-        # Batch tokenization
-        inputs = model.loader.tokenizer(
-            stripped_texts,
-            padding=True,
-            return_tensors="pt",
-            return_offsets_mapping=True
-        )
-
-        # Check max length
-        try:
-            max_length = model.model.config.max_position_embeddings
-        except AttributeError:
-            max_length = 512
-
-        seq_length = inputs['input_ids'].shape[1]
-        if seq_length > max_length:
-            raise ValueError(
-                f"Input text too long: {seq_length} tokens "
-                f"(model max: {max_length}). Split text into smaller chunks."
-            )
-
-        # Run inference
-        predictions = model.predict(inputs)
+        # Run batch inference - returns list of (encoding, labels) tuples
+        batch_results = model.process_batch(stripped_texts, batch_size=len(stripped_texts))
 
         # For each example in batch, get ground truth and compare
-        for j, example in enumerate(batch_examples):
-            # Get prediction labels for this example
-            pred_labels = predictions[j] if isinstance(predictions[0], list) else predictions
-
+        for j, (example, (inputs, pred_labels)) in enumerate(zip(batch_examples, batch_results)):
             # Get ground truth labels by re-processing the original XML
             from perscit_model.extraction.data_loader import parse_xml_to_bio
 
