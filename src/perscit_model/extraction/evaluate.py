@@ -100,6 +100,25 @@ def evaluate_model(
     # Load data loader once (reuse tokenizer for all examples)
     loader = ExtractionDataLoader()
 
+    # Precompute all ground truth labels (this is the bottleneck - do it once upfront)
+    logger.info("Precomputing ground truth labels for all examples...")
+    all_ground_truth_labels = []
+    for example in tqdm(test_examples, desc="Computing ground truth"):
+        parsed_text = ExtractionDataLoader.parse_xml_to_bio(example["xml_context"])
+        ground_truth_inputs = cast(
+            transformers.BatchEncoding, loader.tokenize_text(parsed_text)
+        )
+        ground_truth_labels_ids = loader.generate_bio_labels(
+            ground_truth_inputs["input_ids"][0].tolist()
+        )
+        true_labels_clean, _ = loader.strip_special_tokens_and_align_labels(
+            ground_truth_inputs["input_ids"][0].tolist(), ground_truth_labels_ids
+        )
+        true_labels = [
+            ID2LABEL.get(label_id, "O") for label_id in true_labels_clean
+        ]
+        all_ground_truth_labels.append(true_labels)
+
     # Process all examples
     all_predictions = []
     all_true_labels = []
@@ -123,23 +142,8 @@ def evaluate_model(
             zip(batch_examples, batch_results)
         ):
             original_text = example["xml_context"]
-
-            # Parse XML to special tokens, then tokenize
-            parsed_text = ExtractionDataLoader.parse_xml_to_bio(original_text)
-            ground_truth_inputs = cast(
-                transformers.BatchEncoding, loader.tokenize_text(parsed_text)
-            )
-            ground_truth_labels_ids = loader.generate_bio_labels(
-                ground_truth_inputs["input_ids"][0].tolist()
-            )
-
-            # Strip special tokens from ground truth to match inference
-            true_labels_clean, _ = loader.strip_special_tokens_and_align_labels(
-                ground_truth_inputs["input_ids"][0].tolist(), ground_truth_labels_ids
-            )
-            true_labels = [
-                ID2LABEL.get(label_id, "O") for label_id in true_labels_clean
-            ]
+            example_idx = i + j
+            true_labels = all_ground_truth_labels[example_idx]
 
             # Filter out special tokens (label = -100) from both
             filtered_true = []
