@@ -21,6 +21,17 @@ from perscit_model.extraction.inference import InferenceModel
 logger = logging.getLogger(__name__)
 
 
+import re
+
+# Compile regex patterns once for better performance
+_CIT_OPEN_PATTERN = re.compile(r"<cit[^>]*>")
+_CIT_CLOSE_PATTERN = re.compile(r"</cit>")
+_BIBL_OPEN_PATTERN = re.compile(r"<bibl[^>]*>")
+_BIBL_CLOSE_PATTERN = re.compile(r"</bibl>")
+_QUOTE_OPEN_PATTERN = re.compile(r"<quote[^>]*>")
+_QUOTE_CLOSE_PATTERN = re.compile(r"</quote>")
+
+
 def strip_xml_tags(text: str) -> str:
     """
     Remove <bibl>, <quote>, and <cit> tags from XML text.
@@ -33,19 +44,13 @@ def strip_xml_tags(text: str) -> str:
     Returns:
         Text with citation tags removed
     """
-    import re
-
-    # Remove <cit> tags (can contain other tags)
-    text = re.sub(r"<cit[^>]*>", "", text)
-    text = re.sub(r"</cit>", "", text)
-
-    # Remove <bibl> tags
-    text = re.sub(r"<bibl[^>]*>", "", text)
-    text = re.sub(r"</bibl>", "", text)
-
-    # Remove <quote> tags
-    text = re.sub(r"<quote[^>]*>", "", text)
-    text = re.sub(r"</quote>", "", text)
+    # Use precompiled patterns for better performance
+    text = _CIT_OPEN_PATTERN.sub("", text)
+    text = _CIT_CLOSE_PATTERN.sub("", text)
+    text = _BIBL_OPEN_PATTERN.sub("", text)
+    text = _BIBL_CLOSE_PATTERN.sub("", text)
+    text = _QUOTE_OPEN_PATTERN.sub("", text)
+    text = _QUOTE_CLOSE_PATTERN.sub("", text)
 
     return text
 
@@ -100,10 +105,16 @@ def evaluate_model(
     # Load data loader once (reuse tokenizer for all examples)
     loader = ExtractionDataLoader()
 
-    # Precompute all ground truth labels (this is the bottleneck - do it once upfront)
-    logger.info("Precomputing ground truth labels for all examples...")
+    # Precompute ground truth labels and stripped texts (do expensive ops once upfront)
+    logger.info("Preprocessing test examples (computing labels and stripping tags)...")
     all_ground_truth_labels = []
-    for example in tqdm(test_examples, desc="Computing ground truth"):
+    all_stripped_texts = []
+    for example in tqdm(test_examples, desc="Preprocessing"):
+        # Strip XML tags once
+        stripped_text = strip_xml_tags(example["xml_context"])
+        all_stripped_texts.append(stripped_text)
+
+        # Compute ground truth labels once
         parsed_text = ExtractionDataLoader.parse_xml_to_bio(example["xml_context"])
         ground_truth_inputs = cast(
             transformers.BatchEncoding, loader.tokenize_text(parsed_text)
@@ -130,12 +141,11 @@ def evaluate_model(
     for i in tqdm(range(0, len(test_examples), batch_size)):
         batch_examples = test_examples[i : i + batch_size]
 
-        # Extract original XML texts and strip tags
-        xml_texts = [ex["xml_context"] for ex in batch_examples]
-        stripped_texts = [strip_xml_tags(text) for text in xml_texts]
+        # Get precomputed stripped texts for this batch
+        batch_stripped_texts = all_stripped_texts[i : i + batch_size]
 
         # Run batch inference - returns list of (encoding, labels) tuples
-        batch_results = model.process_batch(stripped_texts)
+        batch_results = model.process_batch(batch_stripped_texts)
 
         # For each example in batch, compare predictions with ground truth
         for j, (example, (inputs, pred_labels)) in enumerate(
@@ -159,7 +169,7 @@ def evaluate_model(
 
             # Insert predicted tags into stripped text
             predicted_xml = model.insert_tags_into_xml(
-                stripped_texts[j],
+                batch_stripped_texts[j],
                 inputs,
                 [pred_labels],  # Wrap in list for single text
             )
@@ -169,7 +179,7 @@ def evaluate_model(
                 {
                     "filename": example["filename"],
                     "original_xml": original_text,
-                    "stripped_text": stripped_texts[j],
+                    "stripped_text": batch_stripped_texts[j],
                     "predicted_xml": predicted_xml,
                     "true_labels": filtered_true,
                     "pred_labels": filtered_pred,
