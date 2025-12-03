@@ -236,7 +236,7 @@ class InferenceModel:
             inputs = self.loader.tokenizer(
                 batch,
                 padding=True,
-                return_tensor="pt",
+                return_tensors="pt",
                 return_offsets_mapping=True,
             )
 
