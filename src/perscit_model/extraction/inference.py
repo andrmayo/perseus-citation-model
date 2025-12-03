@@ -22,13 +22,21 @@ MODEL_SAVE_DIR = (
 
 class InferenceModel:
     def __init__(
-        self, model_path: str | Path | None = None, last_trained=False, **kwargs
+        self, model_path: str | Path | None = None, last_trained=False, device: str | None = None, **kwargs
     ):
         self.model = cast(
             transformers.AutoModelForTokenClassification,
             InferenceModel.load_model(model_path, last_trained),
         )
         self.loader = ExtractionDataLoader(**kwargs)
+
+        # Move model to GPU if available
+        if device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        else:
+            self.device = device
+        self.model = self.model.to(self.device)
+        self.model.eval()  # Set to evaluation mode
 
     @staticmethod
     def load_model(path: str | Path | None = None, last_trained=False):
@@ -248,13 +256,15 @@ class InferenceModel:
                 """
                 raise ValueError(msg)
 
-            # prediction
+            # Move inputs to device and run prediction
+            inputs_on_device = {
+                k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                for k, v in inputs.items()
+                if k != "offset_mapping"
+            }
             call_model = cast(Callable, self.model)
             with torch.no_grad():
-                outputs = call_model(
-                    **{k: v for k, v in inputs.items() if k != "offset_mapping"},
-                    **kwargs,
-                )
+                outputs = call_model(**inputs_on_device, **kwargs)
 
             # Decode predictions
             predictions = outputs.logits.argmax(dim=-1).tolist()
@@ -286,11 +296,15 @@ class InferenceModel:
             Input should be plain text. If you have XML with tags, strip them first.
             The model predicts where <bibl>, <quote>, and <cit> tags should be.
         """
+        # Move inputs to device
+        inputs_on_device = {
+            k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+            for k, v in inputs.items()
+            if k != "offset_mapping"
+        }
         call_model = cast(Callable, self.model)
         with torch.no_grad():
-            outputs = call_model(
-                **{k: v for k, v in inputs.items() if k != "offset_mapping"}, **kwargs
-            )
+            outputs = call_model(**inputs_on_device, **kwargs)
         logits = outputs.logits
         predictions = logits.argmax(dim=-1).squeeze().tolist()
         labels = [ID2LABEL[p] for p in predictions]
