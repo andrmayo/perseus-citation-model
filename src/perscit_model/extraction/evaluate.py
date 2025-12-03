@@ -3,7 +3,9 @@
 import json
 import logging
 from pathlib import Path
+from typing import cast
 
+import transformers
 from seqeval.metrics import (
     accuracy_score,
     classification_report,
@@ -34,16 +36,16 @@ def strip_xml_tags(text: str) -> str:
     import re
 
     # Remove <cit> tags (can contain other tags)
-    text = re.sub(r'<cit[^>]*>', '', text)
-    text = re.sub(r'</cit>', '', text)
+    text = re.sub(r"<cit[^>]*>", "", text)
+    text = re.sub(r"</cit>", "", text)
 
     # Remove <bibl> tags
-    text = re.sub(r'<bibl[^>]*>', '', text)
-    text = re.sub(r'</bibl>', '', text)
+    text = re.sub(r"<bibl[^>]*>", "", text)
+    text = re.sub(r"</bibl>", "", text)
 
     # Remove <quote> tags
-    text = re.sub(r'<quote[^>]*>', '', text)
-    text = re.sub(r'</quote>', '', text)
+    text = re.sub(r"<quote[^>]*>", "", text)
+    text = re.sub(r"</quote>", "", text)
 
     return text
 
@@ -85,7 +87,7 @@ def evaluate_model(
 
     # Load test data
     test_examples = []
-    with open(test_path, 'r', encoding='utf-8') as f:
+    with open(test_path, "r", encoding="utf-8") as f:
         for line in f:
             test_examples.append(json.loads(line))
 
@@ -104,36 +106,42 @@ def evaluate_model(
 
     # Process in batches using process_batch method
     for i in tqdm(range(0, len(test_examples), batch_size)):
-        batch_examples = test_examples[i:i + batch_size]
+        batch_examples = test_examples[i : i + batch_size]
 
         # Extract original XML texts and strip tags
-        xml_texts = [ex['xml_context'] for ex in batch_examples]
+        xml_texts = [ex["xml_context"] for ex in batch_examples]
         stripped_texts = [strip_xml_tags(text) for text in xml_texts]
 
         # Run batch inference - returns list of (encoding, labels) tuples
-        batch_results = model.process_batch(stripped_texts, batch_size=len(stripped_texts))
+        batch_results = model.process_batch(
+            stripped_texts, batch_size=len(stripped_texts)
+        )
 
         # For each example in batch, get ground truth and compare
-        for j, (example, (inputs, pred_labels)) in enumerate(zip(batch_examples, batch_results)):
+        for j, (example, (inputs, pred_labels)) in enumerate(
+            zip(batch_examples, batch_results)
+        ):
             # Get ground truth labels by re-processing the original XML
-            from perscit_model.extraction.data_loader import parse_xml_to_bio
 
-            original_text = example['xml_context']
+            original_text = example["xml_context"]
             loader = ExtractionDataLoader()
 
             # Parse XML to special tokens, then tokenize
-            parsed_text = parse_xml_to_bio(original_text)
-            ground_truth_inputs = loader.tokenize_text(parsed_text)
+            parsed_text = ExtractionDataLoader.parse_xml_to_bio(original_text)
+            ground_truth_inputs = cast(
+                transformers.BatchEncoding, loader.tokenize_text(parsed_text)
+            )
             ground_truth_labels_ids = loader.generate_bio_labels(
-                ground_truth_inputs['input_ids'][0].tolist()
+                ground_truth_inputs["input_ids"][0].tolist()
             )
 
             # Strip special tokens from ground truth to match inference
             true_labels_clean, _ = loader.strip_special_tokens_and_align_labels(
-                ground_truth_inputs['input_ids'][0].tolist(),
-                ground_truth_labels_ids
+                ground_truth_inputs["input_ids"][0].tolist(), ground_truth_labels_ids
             )
-            true_labels = [ID2LABEL.get(label_id, 'O') for label_id in true_labels_clean]
+            true_labels = [
+                ID2LABEL.get(label_id, "O") for label_id in true_labels_clean
+            ]
 
             # Filter out special tokens (label = -100) from both
             filtered_true = []
@@ -151,18 +159,20 @@ def evaluate_model(
             predicted_xml = model.insert_tags_into_xml(
                 stripped_texts[j],
                 inputs,
-                [pred_labels]  # Wrap in list for single text
+                [pred_labels],  # Wrap in list for single text
             )
 
             # Store result
-            all_results.append({
-                'filename': example['filename'],
-                'original_xml': original_text,
-                'stripped_text': stripped_texts[j],
-                'predicted_xml': predicted_xml,
-                'true_labels': filtered_true,
-                'pred_labels': filtered_pred,
-            })
+            all_results.append(
+                {
+                    "filename": example["filename"],
+                    "original_xml": original_text,
+                    "stripped_text": stripped_texts[j],
+                    "predicted_xml": predicted_xml,
+                    "true_labels": filtered_true,
+                    "pred_labels": filtered_pred,
+                }
+            )
 
     # Compute metrics using seqeval
     logger.info("Computing metrics...")
@@ -174,27 +184,27 @@ def evaluate_model(
         "num_examples": len(test_examples),
     }
 
-    # Get detailed classification report
-    report = classification_report(all_true_labels, all_predictions)
+    # Get detailed classification report (ensure it returns a string)
+    report = cast(str, classification_report(all_true_labels, all_predictions))
     logger.info("\nClassification Report:\n" + report)
 
     # Save metrics
     metrics_path = output_dir / "test_metrics.json"
-    with open(metrics_path, 'w', encoding='utf-8') as f:
+    with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
     logger.info(f"Saved metrics to {metrics_path}")
 
     # Save classification report
     report_path = output_dir / "classification_report.txt"
-    with open(report_path, 'w', encoding='utf-8') as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write(report)
     logger.info(f"Saved classification report to {report_path}")
 
     # Save predictions with reconstructed XML
     predictions_path = output_dir / "test_predictions.jsonl"
-    with open(predictions_path, 'w', encoding='utf-8') as f:
+    with open(predictions_path, "w", encoding="utf-8") as f:
         for result in all_results:
-            f.write(json.dumps(result, ensure_ascii=False) + '\n')
+            f.write(json.dumps(result, ensure_ascii=False) + "\n")
     logger.info(f"Saved {len(all_results)} predictions to {predictions_path}")
 
     return metrics
