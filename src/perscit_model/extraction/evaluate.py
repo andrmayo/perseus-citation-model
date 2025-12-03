@@ -109,15 +109,32 @@ def evaluate_model(
     logger.info("Preprocessing test examples (computing labels and stripping tags)...")
     all_ground_truth_labels = []
     all_stripped_texts = []
+    max_length = 512  # Model's maximum sequence length
+
     for example in tqdm(test_examples, desc="Preprocessing"):
-        # Strip XML tags once
+        # Strip XML tags and truncate if needed
         stripped_text = strip_xml_tags(example["xml_context"])
+
+        # Tokenize to check length and truncate if needed
+        stripped_tokens = loader.tokenizer(
+            stripped_text,
+            truncation=True,
+            max_length=max_length
+        )
+        # Decode back to get truncated text
+        if len(stripped_tokens["input_ids"]) >= max_length:
+            stripped_text = loader.tokenizer.decode(
+                stripped_tokens["input_ids"],
+                skip_special_tokens=True
+            )
+
         all_stripped_texts.append(stripped_text)
 
-        # Compute ground truth labels once
+        # Compute ground truth labels once (with truncation)
         parsed_text = ExtractionDataLoader.parse_xml_to_bio(example["xml_context"])
         ground_truth_inputs = cast(
-            transformers.BatchEncoding, loader.tokenize_text(parsed_text)
+            transformers.BatchEncoding,
+            loader.tokenizer(parsed_text, truncation=True, max_length=max_length, return_tensors="pt")
         )
         ground_truth_labels_ids = loader.generate_bio_labels(
             ground_truth_inputs["input_ids"][0].tolist()
