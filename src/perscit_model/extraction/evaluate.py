@@ -97,6 +97,9 @@ def evaluate_model(
     logger.info(f"Loading model (last_trained={last_trained})")
     model = InferenceModel(model_path=model_path, last_trained=last_trained)
 
+    # Load data loader once (reuse tokenizer for all examples)
+    loader = ExtractionDataLoader()
+
     # Process all examples
     all_predictions = []
     all_true_labels = []
@@ -124,7 +127,6 @@ def evaluate_model(
             # Get ground truth labels by re-processing the original XML
 
             original_text = example["xml_context"]
-            loader = ExtractionDataLoader()
 
             # Parse XML to special tokens, then tokenize
             parsed_text = ExtractionDataLoader.parse_xml_to_bio(original_text)
