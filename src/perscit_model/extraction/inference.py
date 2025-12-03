@@ -1,4 +1,5 @@
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Callable, cast
 
@@ -108,10 +109,10 @@ class InferenceModel:
 
         tokens = int_tens(encoding["input_ids"])
         try:
-            with_tags = [
-                self._insert_tags(x, int_tens(tok), int_tens(om), cast(list[str], lbl))
-                for x, tok, om, lbl in zip(xml, tokens, offset_mapping, labels)
-            ]
+            with ProcessPoolExecutor() as executor:
+                with_tags = list(
+                    executor.map(self._insert_tags, xml, tokens, offset_mapping, labels)
+                )
         except Exception as e:
             raise e
         return with_tags
@@ -146,7 +147,7 @@ class InferenceModel:
         current_entity = None
 
         for start, end, label in token_spans:
-            if label == "0":
+            if label == "O":
                 if current_entity:
                     entities.append(current_entity)
                     current_entity = None
@@ -203,6 +204,68 @@ class InferenceModel:
         labels = self.predict(inputs, **kwargs)
 
         return inputs, labels
+
+    def process_batch(
+        self, texts: list[str], batch_size: int = 32, **kwargs
+    ) -> list[tuple[transformers.BatchEncoding, list[str]]]:
+        """
+        Process multiple texts in batches (efficient GPU utilization).
+
+        Args:
+            texts: list of plain text strings
+            batch_size: number of texts to process at once
+            **kwargs: additional arguments for model
+
+        Returns:
+            List of (encoding, labels) tuples for each text
+        """
+
+        results = []
+        max_length = getattr(
+            getattr(self.model, "config", None), "max_position_embeddings", None
+        )
+
+        if max_length is None:
+            raise AttributeError(
+                "Unable to get max embedding size from model with model.config.max_position_embeddings"
+            )
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+
+            inputs = self.loader.tokenizer(
+                batch,
+                padding=True,
+                return_tensor="pt",
+                return_offsets_mapping=True,
+            )
+
+            seq_length = inputs["input_ids"].shape[1]
+            if seq_length > max_length:
+                msg = f"""
+                Input text too long: {seq_length} tokens (max: {max_length}).
+                Split your text into smaller chunks.
+                """
+                raise ValueError(msg)
+
+            # prediction
+            call_model = cast(Callable, self.model)
+            with torch.no_grad():
+                outputs = call_model(
+                    **{k: v for k, v in inputs.items() if k != "offset_mapping"},
+                    **kwargs,
+                )
+
+            # Decode predictions
+            predictions = outputs.logits.argmax(dim=-1).tolist()
+            labels_batch = [[ID2LABEL[p] for p in preds] for preds in predictions]
+
+            # Store results
+            for j, labels in enumerate(labels_batch):
+                single_encoding = {k: v[j : j + 1] for k, v in inputs.items()}
+                results.append((transformers.BatchEncoding(single_encoding), labels))
+
+        return results
 
     def predict(
         self,
