@@ -30,6 +30,29 @@ _BIBL_CLOSE_PATTERN = re.compile(r"</bibl>")
 _QUOTE_OPEN_PATTERN = re.compile(r"<quote[^>]*>")
 _QUOTE_CLOSE_PATTERN = re.compile(r"</quote>")
 
+# Patterns to extract citation elements with their content
+_BIBL_EXTRACT_PATTERN = re.compile(r"<bibl[^>]*>(.*?)</bibl>", re.DOTALL)
+_QUOTE_EXTRACT_PATTERN = re.compile(r"<quote[^>]*>(.*?)</quote>", re.DOTALL)
+
+
+def extract_citations(text: str) -> dict[str, list[str]]:
+    """
+    Extract all <bibl> and <quote> elements from XML text.
+
+    Args:
+        text: XML text with citation tags
+
+    Returns:
+        Dict with 'bibl' and 'quote' keys containing lists of extracted text
+    """
+    bibls = _BIBL_EXTRACT_PATTERN.findall(text)
+    quotes = _QUOTE_EXTRACT_PATTERN.findall(text)
+
+    return {
+        "bibl": bibls,
+        "quote": quotes,
+    }
+
 
 def strip_xml_tags(text: str) -> str:
     """
@@ -135,21 +158,58 @@ def evaluate_model(
 
         all_stripped_texts.append(stripped_text)
 
-        # Compute ground truth labels once (with truncation)
-        parsed_text = ExtractionDataLoader.parse_xml_to_bio(example["xml_context"])
+        # Tokenize the stripped text (same as what model will see during inference)
         ground_truth_inputs = cast(
             transformers.BatchEncoding,
             loader.tokenizer(
-                parsed_text, truncation=True, max_length=max_length, return_tensors="pt"
+                stripped_text,
+                truncation=True,
+                max_length=max_length,
+                return_tensors="pt",
+                return_offsets_mapping=True,
             ),
         )
-        ground_truth_labels_ids = loader.generate_bio_labels(
-            ground_truth_inputs["input_ids"][0].tolist()
-        )
-        true_labels_clean, _ = loader.strip_special_tokens_and_align_labels(
-            ground_truth_inputs["input_ids"][0].tolist(), ground_truth_labels_ids
-        )
-        true_labels = [ID2LABEL.get(label_id, "O") for label_id in true_labels_clean]
+
+        # Generate ground truth labels by mapping citations from original XML to tokens
+        # Extract citations and their positions from original XML
+        original_text = example["xml_context"]
+        token_ids = ground_truth_inputs["input_ids"][0].tolist()
+        offset_mapping = ground_truth_inputs["offset_mapping"][0].tolist()
+
+        # Initialize all labels as "O" (outside)
+        true_labels = ["O"] * len(token_ids)
+
+        # Find all citation spans in the original XML and map to stripped text positions
+        for match in _BIBL_EXTRACT_PATTERN.finditer(original_text):
+            citation_text = match.group(1)
+            # Find where this appears in stripped text
+            start_pos = stripped_text.find(citation_text)
+            if start_pos != -1:
+                end_pos = start_pos + len(citation_text)
+                # Mark tokens that overlap with this span
+                for i, (token_start, token_end) in enumerate(offset_mapping):
+                    if token_start == token_end:  # Skip special tokens
+                        continue
+                    if token_start >= start_pos and token_end <= end_pos:
+                        if token_start == start_pos or true_labels[i] == "O":
+                            true_labels[i] = "B-BIBL"
+                        else:
+                            true_labels[i] = "I-BIBL"
+
+        for match in _QUOTE_EXTRACT_PATTERN.finditer(original_text):
+            citation_text = match.group(1)
+            start_pos = stripped_text.find(citation_text)
+            if start_pos != -1:
+                end_pos = start_pos + len(citation_text)
+                for i, (token_start, token_end) in enumerate(offset_mapping):
+                    if token_start == token_end:
+                        continue
+                    if token_start >= start_pos and token_end <= end_pos:
+                        if token_start == start_pos or true_labels[i] == "O":
+                            true_labels[i] = "B-QUOTE"
+                        else:
+                            true_labels[i] = "I-QUOTE"
+
         all_ground_truth_labels.append(true_labels)
 
     # Process all examples
@@ -196,15 +256,19 @@ def evaluate_model(
                 [pred_labels],  # Wrap in list for single text
             )
 
-            # Store result
+            # Extract citations from both original and predicted XML
+            original_citations = extract_citations(original_text)
+            predicted_citations = extract_citations(predicted_xml)
+
+            # Store result (without labels - they can be inferred from XML)
             all_results.append(
                 {
                     "filename": example["filename"],
                     "original_xml": original_text,
                     "stripped_text": batch_stripped_texts[j],
                     "predicted_xml": predicted_xml,
-                    "true_labels": filtered_true,
-                    "pred_labels": filtered_pred,
+                    "original_citations": original_citations,
+                    "predicted_citations": predicted_citations,
                 }
             )
 
