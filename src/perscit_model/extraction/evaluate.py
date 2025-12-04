@@ -82,7 +82,7 @@ def evaluate_model(
     test_path: Path | str = "model_data/extraction/test.jsonl",
     output_dir: Path | str = "outputs/extraction/test",
     batch_size: int | None = None,
-    last_trained: bool = True,
+    last_trained: bool = False,
 ) -> dict:
     """
     Evaluate extraction model on test set.

@@ -31,9 +31,9 @@ def main():
         "--batch-size", type=int, default=None, help="Batch size for inference (default: auto-detect based on GPU availability - 128 for GPU, 32 for CPU)"
     )
     parser.add_argument(
-        "--no-last-trained",
+        "--last-trained",
         action="store_true",
-        help="Don't use last trained model (requires --model-path)",
+        help="Use last trained model from outputs/extraction/final-model* (default: load from outputs/models/extraction)",
     )
 
     args = parser.parse_args()
@@ -50,7 +50,7 @@ def main():
         test_path=args.test_path,
         output_dir=args.output_dir,
         batch_size=args.batch_size,
-        last_trained=not args.no_last_trained,
+        last_trained=args.last_trained,
     )
 
     print("\n" + "=" * 50)
