@@ -103,9 +103,9 @@ class ExtractionDataLoader(SharedDataLoader):
         # Reconstruct repaired XML
         cleaned_xml = str(soup)
 
-        # Replace citation tags with special tokens (with spaces for tokenization)
+        # Replace citation tags with special tokens (no extra spaces since they're registered as special tokens)
         for tag, token in zip(SPECIAL_TAGS, SPECIAL_TOKENS):
-            cleaned_xml = cleaned_xml.replace(tag, f" {token} ")
+            cleaned_xml = cleaned_xml.replace(tag, token)
 
         return cleaned_xml
 
