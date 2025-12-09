@@ -172,6 +172,19 @@ class InferenceModel:
         if current_entity:
             entities.append(current_entity)
 
+        # Trim leading/trailing whitespace from entity boundaries
+        # (tokenizer offset_mapping includes spaces in ranges)
+        for entity in entities:
+            start, end = entity["start"], entity["end"]
+            # Trim leading whitespace
+            while start < end and xml[start].isspace():
+                start += 1
+            # Trim trailing whitespace
+            while end > start and xml[end - 1].isspace():
+                end -= 1
+            entity["start"] = start
+            entity["end"] = end
+
         # build text segments
         segments = []
         last_pos = 0
