@@ -176,12 +176,7 @@ class InferenceModel:
         # (tokenizer offset_mapping includes spaces in ranges)
         for entity in entities:
             start, end = entity["start"], entity["end"]
-            # Trim leading whitespace
-            while start < end and xml[start].isspace():
-                start += 1
-            # Trim trailing whitespace
-            while end > start and xml[end - 1].isspace():
-                end -= 1
+            start, end = ExtractionDataLoader.trim_offset_whitespace(xml, start, end)
             entity["start"] = start
             entity["end"] = end
 

@@ -295,3 +295,84 @@ num_train_epochs: 3
         mock_tokenizer.assert_called_once()
         call_kwargs = mock_tokenizer.call_args[1]
         assert call_kwargs['return_tensors'] == "pt"
+
+    def test_trim_offset_whitespace_leading_space(self):
+        """Test trimming offset with leading whitespace."""
+        text = "cf. Thuc. III.38"
+        # Offset (3, 7) represents " Thu" in text
+        start, end = SharedDataLoader.trim_offset_whitespace(text, 3, 7)
+
+        assert start == 4  # After the space
+        assert end == 7
+        assert text[start:end] == "Thu"
+
+    def test_trim_offset_whitespace_trailing_space(self):
+        """Test trimming offset with trailing whitespace."""
+        text = "word   next"
+        # Offset (0, 7) represents "word   " (with trailing spaces)
+        start, end = SharedDataLoader.trim_offset_whitespace(text, 0, 7)
+
+        assert start == 0
+        assert end == 4  # After "word", before spaces
+        assert text[start:end] == "word"
+
+    def test_trim_offset_whitespace_both_sides(self):
+        """Test trimming offset with both leading and trailing whitespace."""
+        text = "text  word  next"
+        # Offset (4, 11) represents "  word  "
+        start, end = SharedDataLoader.trim_offset_whitespace(text, 4, 11)
+
+        assert start == 6  # After leading spaces
+        assert end == 10   # Before trailing spaces
+        assert text[start:end] == "word"
+
+    def test_trim_offset_whitespace_no_whitespace(self):
+        """Test trimming offset with no whitespace."""
+        text = "cf.Thuc"
+        # Offset (3, 7) represents "Thuc" (no spaces)
+        start, end = SharedDataLoader.trim_offset_whitespace(text, 3, 7)
+
+        assert start == 3
+        assert end == 7
+        assert text[start:end] == "Thuc"
+
+    def test_trim_offset_whitespace_all_whitespace(self):
+        """Test trimming offset that contains only whitespace."""
+        text = "word     next"
+        # Offset (4, 9) represents "     " (all spaces)
+        start, end = SharedDataLoader.trim_offset_whitespace(text, 4, 9)
+
+        # Should return start == end (empty range)
+        assert start == end
+        assert start == 9
+
+    def test_trim_offset_whitespace_newlines_and_tabs(self):
+        """Test trimming offset with various whitespace characters."""
+        text = "word\t\n  content  \t\nnext"
+        # Offset (4, 17) represents "\t\n  content  \t\n"
+        start, end = SharedDataLoader.trim_offset_whitespace(text, 4, 17)
+
+        assert start == 8   # After "\t\n  "
+        assert end == 15    # Before "  \t\n"
+        assert text[start:end] == "content"
+
+    def test_trim_offset_whitespace_empty_range(self):
+        """Test trimming an empty offset range."""
+        text = "some text"
+        # Empty range (5, 5)
+        start, end = SharedDataLoader.trim_offset_whitespace(text, 5, 5)
+
+        assert start == 5
+        assert end == 5
+
+    def test_trim_offset_whitespace_real_tokenizer_example(self):
+        """Test with a real example from DeBERTa tokenizer offset_mapping."""
+        # Simulates: "cf. Thuc. III.38"
+        # DeBERTa tokenizer gives offset (3, 7) for token "Thu" but includes leading space
+        text = "cf. Thuc. III.38"
+        start, end = SharedDataLoader.trim_offset_whitespace(text, 3, 7)
+
+        # Should exclude the space at position 3
+        assert text[start:end] == "Thu"
+        assert start == 4
+        assert end == 7

@@ -48,6 +48,31 @@ class SharedDataLoader:
         config = TrainingConfig.from_yaml(config_path)
         return config.model_name, config.max_length
 
+    @staticmethod
+    def trim_offset_whitespace(text: str, start: int, end: int) -> tuple[int, int]:
+        """
+        Trim leading/trailing whitespace from a character offset range.
+
+        DeBERTa's tokenizer offset_mapping includes leading/trailing whitespace
+        in the character ranges. This function trims those spaces to get the
+        actual content boundaries.
+
+        Args:
+            text: The text being tokenized
+            start: Start position of the offset range
+            end: End position of the offset range
+
+        Returns:
+            Tuple of (trimmed_start, trimmed_end) with whitespace excluded
+        """
+        # Trim leading whitespace
+        while start < end and text[start].isspace():
+            start += 1
+        # Trim trailing whitespace
+        while end > start and text[end - 1].isspace():
+            end -= 1
+        return start, end
+
     def load_jsonl(self, filepath: Path | str) -> Generator[dict, None, None]:
         """
         Load JSONL file line by line (memory efficient generator).

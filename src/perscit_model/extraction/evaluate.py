@@ -190,8 +190,15 @@ def evaluate_model(
                 for i, (token_start, token_end) in enumerate(offset_mapping):
                     if token_start == token_end:  # Skip special tokens
                         continue
-                    if token_start >= start_pos and token_end <= end_pos:
-                        if token_start == start_pos or true_labels[i] == "O":
+
+                    # Trim whitespace from token boundaries (offset_mapping includes leading/trailing spaces)
+                    trimmed_start, trimmed_end = ExtractionDataLoader.trim_offset_whitespace(
+                        stripped_text, token_start, token_end
+                    )
+
+                    # Check if trimmed token overlaps with citation span
+                    if trimmed_start >= start_pos and trimmed_end <= end_pos:
+                        if trimmed_start == start_pos or true_labels[i] == "O":
                             true_labels[i] = "B-BIBL"
                         else:
                             true_labels[i] = "I-BIBL"
@@ -204,8 +211,15 @@ def evaluate_model(
                 for i, (token_start, token_end) in enumerate(offset_mapping):
                     if token_start == token_end:
                         continue
-                    if token_start >= start_pos and token_end <= end_pos:
-                        if token_start == start_pos or true_labels[i] == "O":
+
+                    # Trim whitespace from token boundaries (offset_mapping includes leading/trailing spaces)
+                    trimmed_start, trimmed_end = ExtractionDataLoader.trim_offset_whitespace(
+                        stripped_text, token_start, token_end
+                    )
+
+                    # Check if trimmed token overlaps with citation span
+                    if trimmed_start >= start_pos and trimmed_end <= end_pos:
+                        if trimmed_start == start_pos or true_labels[i] == "O":
                             true_labels[i] = "B-QUOTE"
                         else:
                             true_labels[i] = "I-QUOTE"
