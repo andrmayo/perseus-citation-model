@@ -142,89 +142,37 @@ def evaluate_model(
     max_length = 512  # Model's maximum sequence length
 
     for example in tqdm(test_examples, desc="Preprocessing"):
-        # Strip XML tags and truncate if needed
-        stripped_text = strip_xml_tags(example["xml_context"])
-
-        # Tokenize to check length and truncate if needed
-        stripped_tokens = cast(
-            transformers.BatchEncoding,
-            loader.tokenizer(stripped_text, truncation=True, max_length=max_length)
+        # Use the SAME approach as training: convert XML tags to special tokens,
+        # generate labels, then strip special tokens
+        xml_with_special_tokens = ExtractionDataLoader.parse_xml_to_bio(
+            example["xml_context"]
         )
-        # Decode back to get truncated text
-        if len(stripped_tokens["input_ids"]) >= max_length:
-            stripped_text = loader.tokenizer.decode(
-                stripped_tokens["input_ids"], skip_special_tokens=True
-            )
 
-        all_stripped_texts.append(stripped_text)
-
-        # Tokenize the stripped text (same as what model will see during inference)
-        ground_truth_inputs = cast(
+        # Tokenize WITH special tokens (same as training does)
+        tokens_with_special = cast(
             transformers.BatchEncoding,
             loader.tokenizer(
-                stripped_text,
+                xml_with_special_tokens,
                 truncation=True,
                 max_length=max_length,
                 return_tensors="pt",
-                return_offsets_mapping=True,
             ),
         )
 
-        # Generate ground truth labels by mapping citations from original XML to tokens
-        # Extract citations and their positions from original XML
-        original_text = example["xml_context"]
-        token_ids = ground_truth_inputs["input_ids"][0].tolist()
-        offset_mapping = ground_truth_inputs["offset_mapping"][0].tolist()
+        # Generate BIO labels from special token positions (same as training)
+        input_ids_with_special = tokens_with_special["input_ids"][0].tolist()
+        labels_with_special = loader.generate_bio_labels(input_ids_with_special)
 
-        # Initialize all labels as "O" (outside)
-        true_labels = ["O"] * len(token_ids)
+        # Strip special tokens and align labels (same as training)
+        clean_input_ids, aligned_labels = loader.strip_special_tokens_and_align_labels(
+            input_ids_with_special, labels_with_special
+        )
 
-        # Find all citation spans in the original XML and map to stripped text positions
-        for match in _BIBL_EXTRACT_PATTERN.finditer(original_text):
-            citation_text = match.group(1)
-            # Find where this appears in stripped text
-            start_pos = stripped_text.find(citation_text)
-            if start_pos != -1:
-                end_pos = start_pos + len(citation_text)
-                # Mark tokens that overlap with this span
-                for i, (token_start, token_end) in enumerate(offset_mapping):
-                    if token_start == token_end:  # Skip special tokens
-                        continue
+        # Decode the clean input to get stripped text
+        stripped_text = loader.tokenizer.decode(clean_input_ids, skip_special_tokens=True)
 
-                    # Trim whitespace from token boundaries (offset_mapping includes leading/trailing spaces)
-                    trimmed_start, trimmed_end = ExtractionDataLoader.trim_offset_whitespace(
-                        stripped_text, token_start, token_end
-                    )
-
-                    # Check if trimmed token overlaps with citation span
-                    if trimmed_start >= start_pos and trimmed_end <= end_pos:
-                        if trimmed_start == start_pos or true_labels[i] == "O":
-                            true_labels[i] = "B-BIBL"
-                        else:
-                            true_labels[i] = "I-BIBL"
-
-        for match in _QUOTE_EXTRACT_PATTERN.finditer(original_text):
-            citation_text = match.group(1)
-            start_pos = stripped_text.find(citation_text)
-            if start_pos != -1:
-                end_pos = start_pos + len(citation_text)
-                for i, (token_start, token_end) in enumerate(offset_mapping):
-                    if token_start == token_end:
-                        continue
-
-                    # Trim whitespace from token boundaries (offset_mapping includes leading/trailing spaces)
-                    trimmed_start, trimmed_end = ExtractionDataLoader.trim_offset_whitespace(
-                        stripped_text, token_start, token_end
-                    )
-
-                    # Check if trimmed token overlaps with citation span
-                    if trimmed_start >= start_pos and trimmed_end <= end_pos:
-                        if trimmed_start == start_pos or true_labels[i] == "O":
-                            true_labels[i] = "B-QUOTE"
-                        else:
-                            true_labels[i] = "I-QUOTE"
-
-        all_ground_truth_labels.append(true_labels)
+        all_stripped_texts.append(stripped_text)
+        all_ground_truth_labels.append(aligned_labels)
 
     # Process all examples
     all_predictions = []
@@ -252,13 +200,15 @@ def evaluate_model(
             true_labels = all_ground_truth_labels[example_idx]
 
             # Filter out special tokens (label = -100) from both
+            # Convert integer label IDs to strings for seqeval
             filtered_true = []
             filtered_pred = []
 
             for true_label, pred_label in zip(true_labels, pred_labels):
                 if true_label != -100:  # Skip special tokens
-                    filtered_true.append(true_label)
-                    filtered_pred.append(pred_label)
+                    # Convert int labels to strings using ID2LABEL
+                    filtered_true.append(ID2LABEL[true_label])
+                    filtered_pred.append(pred_label)  # pred_label is already a string
 
             all_true_labels.append(filtered_true)
             all_predictions.append(filtered_pred)
