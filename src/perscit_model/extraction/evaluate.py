@@ -135,44 +135,19 @@ def evaluate_model(
     # Load data loader once (reuse tokenizer for all examples)
     loader = ExtractionDataLoader()
 
-    # Precompute ground truth labels and stripped texts (do expensive ops once upfront)
-    logger.info("Preprocessing test examples (computing labels and stripping tags)...")
-    all_ground_truth_labels = []
-    all_stripped_texts = []
+    # Create dataset using the SAME method as training - this ensures identical tokenization
+    logger.info("Creating test dataset (same as training pipeline)...")
+    from perscit_model.extraction.data_loader import create_extraction_dataset
+
+    test_dataset = create_extraction_dataset(test_path, num_proc=1)
+    logger.info(f"Test dataset size: {len(test_dataset)}")
+
+    # Extract ground truth data from dataset
+    all_tokenized_inputs = [example["input_ids"] for example in test_dataset]
+    all_ground_truth_labels = [example["labels"] for example in test_dataset]
+    all_attention_masks = [example["attention_mask"] for example in test_dataset]
+
     max_length = 512  # Model's maximum sequence length
-
-    for example in tqdm(test_examples, desc="Preprocessing"):
-        # Use the SAME approach as training: convert XML tags to special tokens,
-        # generate labels, then strip special tokens
-        xml_with_special_tokens = ExtractionDataLoader.parse_xml_to_bio(
-            example["xml_context"]
-        )
-
-        # Tokenize WITH special tokens (same as training does)
-        tokens_with_special = cast(
-            transformers.BatchEncoding,
-            loader.tokenizer(
-                xml_with_special_tokens,
-                truncation=True,
-                max_length=max_length,
-                return_tensors="pt",
-            ),
-        )
-
-        # Generate BIO labels from special token positions (same as training)
-        input_ids_with_special = tokens_with_special["input_ids"][0].tolist()
-        labels_with_special = loader.generate_bio_labels(input_ids_with_special)
-
-        # Strip special tokens and align labels (same as training)
-        clean_input_ids, aligned_labels = loader.strip_special_tokens_and_align_labels(
-            input_ids_with_special, labels_with_special
-        )
-
-        # Decode the clean input to get stripped text
-        stripped_text = loader.tokenizer.decode(clean_input_ids, skip_special_tokens=True)
-
-        all_stripped_texts.append(stripped_text)
-        all_ground_truth_labels.append(aligned_labels)
 
     # Process all examples
     all_predictions = []
@@ -181,30 +156,59 @@ def evaluate_model(
 
     logger.info("Running inference on test set...")
 
-    # Process in batches using process_batch method
+    # Process in batches - dataset is tokenized (same as training)
     for i in tqdm(range(0, len(test_examples), batch_size)):
         batch_examples = test_examples[i : i + batch_size]
+        batch_input_ids = all_tokenized_inputs[i : i + batch_size]
+        batch_attention_masks = all_attention_masks[i : i + batch_size]
 
-        # Get precomputed stripped texts for this batch
-        batch_stripped_texts = all_stripped_texts[i : i + batch_size]
+        # Pad batch to same length (like DataCollatorForTokenClassification does)
+        max_len = max(len(ids) for ids in batch_input_ids)
+        padded_input_ids = []
+        padded_attention_masks = []
 
-        # Run batch inference - returns list of (encoding, labels) tuples
-        batch_results = model.process_batch(batch_stripped_texts)
+        for ids, mask in zip(batch_input_ids, batch_attention_masks):
+            padding_length = max_len - len(ids)
+            padded_ids = ids + [loader.tokenizer.pad_token_id] * padding_length
+            padded_mask = mask + [0] * padding_length
+            padded_input_ids.append(padded_ids)
+            padded_attention_masks.append(padded_mask)
 
-        # For each example in batch, compare predictions with ground truth
-        for j, (example, (inputs, pred_labels)) in enumerate(
-            zip(batch_examples, batch_results)
+        # Create batch inputs
+        batch_inputs = {
+            "input_ids": torch.tensor(padded_input_ids, device=model.device),
+            "attention_mask": torch.tensor(padded_attention_masks, device=model.device),
+        }
+
+        # Run model inference
+        with torch.no_grad():
+            outputs = model.model(**batch_inputs)
+
+        # Get predictions
+        predictions = outputs.logits.argmax(dim=-1).cpu().tolist()
+
+        # Process each example in batch
+        for j, (example, pred_ids, input_ids) in enumerate(
+            zip(batch_examples, predictions, batch_input_ids)
         ):
             original_text = example["xml_context"]
             example_idx = i + j
             true_labels = all_ground_truth_labels[example_idx]
+            attention_mask = all_attention_masks[example_idx]  # Original mask from dataset
 
-            # Filter out special tokens (label = -100) from both
-            # Convert integer label IDs to strings for seqeval
+            # Get actual sequence length (excluding padding)
+            seq_length = sum(attention_mask)
+
+            # Convert prediction IDs to labels (only for non-padded tokens)
+            pred_labels = [ID2LABEL[p] for p in pred_ids[:seq_length]]
+
+            # Filter out special tokens (label = -100) from ground truth
+            # Both predictions and ground truth are now aligned to the same tokens
+            # Only process non-padded tokens
             filtered_true = []
             filtered_pred = []
 
-            for true_label, pred_label in zip(true_labels, pred_labels):
+            for true_label, pred_label in zip(true_labels[:seq_length], pred_labels):
                 if true_label != -100:  # Skip special tokens
                     # Convert int labels to strings using ID2LABEL
                     filtered_true.append(ID2LABEL[true_label])
@@ -213,11 +217,26 @@ def evaluate_model(
             all_true_labels.append(filtered_true)
             all_predictions.append(filtered_pred)
 
+            # Decode tokens to get stripped text for output (only non-padded tokens)
+            stripped_text = loader.tokenizer.decode(
+                input_ids[:seq_length], skip_special_tokens=True
+            )
+
+            # For predicted XML, we need offset mapping
+            # Re-tokenize just this one example to get offsets
+            tokens_for_xml = loader.tokenizer(
+                stripped_text,
+                truncation=True,
+                max_length=max_length,
+                return_tensors="pt",
+                return_offsets_mapping=True,
+            )
+
             # Insert predicted tags into stripped text
             predicted_xml = model.insert_tags_into_xml(
-                batch_stripped_texts[j],
-                inputs,
-                [pred_labels],  # Wrap in list for single text
+                stripped_text,
+                tokens_for_xml,
+                pred_labels,
             )
 
             # Extract citations from both original and predicted XML
@@ -229,7 +248,7 @@ def evaluate_model(
                 {
                     "filename": example["filename"],
                     "original_xml": original_text,
-                    "stripped_text": batch_stripped_texts[j],
+                    "stripped_text": stripped_text,
                     "predicted_xml": predicted_xml,
                     "original_citations": original_citations,
                     "predicted_citations": predicted_citations,
