@@ -8,7 +8,7 @@ tar -czvf "$ROOT_DIR/tarballs/model_data.tar.gz" -C "$ROOT_DIR/model_data" . 2>&
 
 TEMP=$(mktemp -d)
 mkdir "$TEMP/extraction"
-cp -r "$ROOT_DIR/outputs/extraction"/final-model* "$TEMP/extraction"
+cp -r "$ROOT_DIR/outputs/models/extraction/"* "$TEMP/extraction"
 tar -czvf "$ROOT_DIR/tarballs/extraction_final_model.tar.gz" -C "$TEMP/extraction" . 2>&1
 rm -rf "$TEMP"
 

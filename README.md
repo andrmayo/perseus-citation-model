@@ -8,8 +8,8 @@ Current README largely contains notes for my own use.
 
 - ✅ Data pipeline implemented (extraction task)
 - ✅ Model initialization and embedding handling
-- ✅ Comprehensive test suite (98 tests passing)
-- ⏳ Training scripts (in progress)
+- ✅ Fine-tuning for extraction task
+- ⏳ XML file processing using fine-tuned model (in progress)
 - ⏳ URN resolution implementation (planned)
 
 ## Installation
@@ -23,7 +23,7 @@ Current README largely contains notes for my own use.
 
 ```bash
 # Clone repository
-git clone https://github.com/your-username/perseus-citation-model.git
+git clone https://github.com/andrmayo/perseus-citation-model.git
 cd perseus-citation-model
 
 # Install with uv (recommended)
@@ -38,25 +38,13 @@ pip install -e ".[dev]"
 - `transformers` - HuggingFace transformers (DeBERTa models)
 - `torch` - PyTorch for model training
 - `datasets` - HuggingFace datasets library
-- `beautifulsoup4` + `lxml` - XML parsing
+- `bs4` + `lxml` - XML parsing with BeautifulSoup
 - `sentencepiece` + `protobuf` - Tokenizer support
+- `accelerate` - Distributed training and mixed precision
+- `seqeval` - BIO tagging evaluation metrics
+- `tiktoken` - OpenAI tokenizer utilities
 - `pytest` + `pytest-mock` - Testing (dev dependency)
-
-## Quick Start
-
-```python
-from perscit_model.extraction.data_loader import ExtractionDataLoader, create_extraction_dataset
-from perscit_model.extraction.model import create_model
-
-# Load data
-loader = ExtractionDataLoader()
-dataset = create_extraction_dataset("cit_data/resolved.jsonl")
-
-# Create model
-model = create_model(loader.tokenizer)
-
-# Train (coming soon - see implementation examples below)
-```
+- `jupyter` + `ipykernel` - Notebook support (dev dependency)
 
 ## Overview
 
@@ -80,9 +68,11 @@ Both tasks share data pipelines and preprocessing infrastructure but use differe
 - `<quote>` - Quoted text
 - `<bibl>` - Bibliographic reference
 
+_Note_ `<cit>` tags surround a quote-bibl pair, so can simply be inserted logically
+once `<bibl>` and `<quote>` elements have been identified
+
 **Challenges:**
 
-- Nested structures (e.g., `<cit>` contains `<quote>` and `<bibl>`)
 - Variable citation formats
 - Mixed languages (Greek, Latin, English)
 - Context-dependent identification
@@ -156,7 +146,7 @@ Training data is in JSONL format with two files:
 
 ### Overview
 
-Fine-tune a pre-trained transformer model (DeBERTa, RoBERTa, or BERT) for sequence labeling using BIO tagging.
+Fine-tune a pre-trained transformer model (DeBERTa) for sequence labeling using BIO tagging.
 
 ### Architecture
 
@@ -207,7 +197,8 @@ One alternative that might be worth trying is **`roberta-base`** - Good alternat
 1. **No word alignment** - Special tokens handle tag boundaries
 2. **Simpler labels** - Generated automatically from special token positions
 3. **Malformed XML handling** - BeautifulSoup repairs broken tags
-4. **Nested tags** - Inner tag takes precedence in BIO scheme
+4. **Nested tags** - State machine tracks most recent tag (special tokens remain visible)
+5. **Special tokens stripped** - After label generation, special tokens are removed from input so model doesn't see them during training
 
 ### Pros
 
@@ -246,80 +237,6 @@ The CRF layer learns transition probabilities between tags, ensuring:
 - Global optimization across the entire sequence
 - Structured prediction with dependencies
 
-### Sample Implementation (to be fully implemented later if necessary)
-
-```python
-from transformers import AutoModel, AutoTokenizer
-import torch
-import torch.nn as nn
-from torchcrf import CRF
-
-class BertCRF(nn.Module):
-    def __init__(self, model_name, num_labels):
-        super().__init__()
-        self.bert = AutoModel.from_pretrained(model_name)
-        self.dropout = nn.Dropout(0.1)
-        self.classifier = nn.Linear(self.bert.config.hidden_size, num_labels)
-        self.crf = CRF(num_labels, batch_first=True)
-
-    def forward(self, input_ids, attention_mask, labels=None):
-        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        sequence_output = outputs[0]
-        sequence_output = self.dropout(sequence_output)
-        emissions = self.classifier(sequence_output)
-
-        if labels is not None:
-            # Training: compute CRF loss
-            loss = -self.crf(emissions, labels, mask=attention_mask.byte(), reduction='mean')
-            return loss
-        else:
-            # Inference: Viterbi decoding
-            predictions = self.crf.decode(emissions, mask=attention_mask.byte())
-            return predictions
-
-# Initialize model
-labels = ["O", "B-CIT", "I-CIT", "B-QUOTE", "I-QUOTE", "B-BIBL", "I-BIBL"]
-model = BertCRF("bert-base-uncased", num_labels=len(labels))
-
-# Training loop
-optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)
-
-for epoch in range(num_epochs):
-    model.train()
-    for batch in train_dataloader:
-        optimizer.zero_grad()
-
-        input_ids = batch['input_ids'].to(device)
-        attention_mask = batch['attention_mask'].to(device)
-        labels = batch['labels'].to(device)
-
-        loss = model(input_ids, attention_mask, labels)
-        loss.backward()
-        optimizer.step()
-
-# Inference
-model.eval()
-with torch.no_grad():
-    predictions = model(input_ids, attention_mask)
-```
-
-### CRF Layer Details
-
-**What CRF learns:**
-
-- Transition matrix: probability of tag A followed by tag B
-- Start transitions: which tags can begin a sequence
-- End transitions: which tags can end a sequence
-
-**Example constraints:**
-
-```
-Valid:   B-QUOTE → I-QUOTE → I-QUOTE → O
-Valid:   O → B-BIBL → I-BIBL → O
-Invalid: O → I-QUOTE (can't start with I-)
-Invalid: B-QUOTE → I-BIBL (can't switch tag types)
-```
-
 ### Pros
 
 - Guaranteed valid tag sequences
@@ -337,19 +254,6 @@ Invalid: B-QUOTE → I-BIBL (can't switch tag types)
 
 ---
 
-## Comparison
-
-| Feature               | Transformer Only             | Transformer + CRF        |
-| --------------------- | ---------------------------- | ------------------------ |
-| **Implementation**    | Simple (HuggingFace Trainer) | Moderate (custom model)  |
-| **Training Speed**    | Fast                         | 10-20% slower            |
-| **Sequence Validity** | No guarantee                 | Guaranteed               |
-| **Performance**       | Good baseline                | Usually 1-3% better      |
-| **Memory**            | Lower                        | Higher                   |
-| **Best for**          | Quick experiments, baseline  | Production, max accuracy |
-
----
-
 ## Data Preparation Pipeline
 
 **Actual implementation:** See `src/perscit_model/extraction/data_loader.py`
@@ -357,16 +261,16 @@ Invalid: B-QUOTE → I-BIBL (can't switch tag types)
 ### Pipeline Overview
 
 ```
-JSONL file → parse_xml_to_bio() → tokenize → generate_bio_labels() → Dataset
+JSONL file → parse_xml_to_bio() → tokenize → generate_bio_labels() → strip_special_tokens_and_align_labels() → Dataset
 ```
 
 ### Step 1: XML → Special Tokens
 
 ```python
-from perscit_model.extraction.data_loader import parse_xml_to_bio
+from perscit_model.extraction.data_loader import ExtractionDataLoader
 
 xml = '<bibl n="Hdt. 8.82">Hdt. 8.82</bibl> some context'
-processed = parse_xml_to_bio(xml)
+processed = ExtractionDataLoader.parse_xml_to_bio(xml)
 # Output: " [BIBL_START]  Hdt. 8.82  [BIBL_END]  some context"
 ```
 
@@ -388,27 +292,115 @@ tokens = loader.tokenizer(processed)
 ### Step 3: Generate BIO Labels
 
 ```python
-from perscit_model.extraction.data_loader import generate_bio_labels
-
-labels = generate_bio_labels(tokens.input_ids[0], loader.tokenizer)
+labels = ExtractionDataLoader.generate_bio_labels(tokens.input_ids[0], loader.tokenizer)
 # State machine: [BIBL_START] triggers B-BIBL, subsequent tokens get I-BIBL
 ```
 
-### Handling Nested Tags
+### Step 4: Strip Special Tokens from Input
 
-For nested structures like `<cit><bibl>Hdt. 8.82</bibl></cit>`:
-
-**Strategy: Inner tag takes precedence**
-
-- Text inside `<bibl>` gets `B-BIBL`/`I-BIBL` labels
-- `<cit>` markers present but tokens labeled by innermost tag
-- Model learns nested structure from marker positions
+```python
+clean_input_ids, aligned_labels = loader.strip_special_tokens_and_align_labels(
+    input_ids, labels
+)
+# Special tokens removed from input, labels remain aligned
+```
 
 ### Dataset Splitting
 
+The training pipeline automatically splits data by filename to prevent data leakage:
+
 ```python
-# TODO: Implement train/val/test split
-# Recommended: Split by document to avoid data leakage
+from perscit_model.extraction.train import split_data
+
+train_path, val_path, test_path = split_data(
+    input_file="cit_data/resolved.jsonl",
+    output_dir="model_data/extraction",
+    train_ratio=0.8,  # Default from config
+    val_ratio=0.1,
+    test_ratio=0.1,
+    seed=42  # Default from config
+)
+```
+
+**Implementation details:**
+
+- Splits by filename (not individual examples) to prevent data leakage
+- Tries multiple shuffles to get close to target ratios
+- Saves split configuration to prevent accidental re-splitting
+- Reuses existing splits if configuration matches
+
+---
+
+## Usage Guide
+
+### Training a Model
+
+```python
+from perscit_model.extraction.train import train_pipeline
+
+# Complete training pipeline (handles data splitting, training, evaluation)
+trainer = train_pipeline(
+    data_dir="model_data/extraction",  # Optional: defaults to model_data/extraction
+    config_path="configs/extraction/baseline.yaml",  # Optional: defaults to baseline
+    output_dir="outputs/extraction",  # Where to save checkpoints
+    num_epochs=3,  # Optional: override config
+    batch_size=16,  # Optional: override config
+)
+```
+
+### Evaluating a Trained Model
+
+```python
+from perscit_model.extraction.evaluate import evaluate_model
+
+# Evaluate on test set
+metrics = evaluate_model(
+    model_path=None,  # Uses most recent trained model
+    test_path="model_data/extraction/test.jsonl",
+    output_dir="outputs/extraction/test",
+    last_trained=True,  # Load most recent model from outputs/extraction
+)
+
+print(f"F1 Score: {metrics['f1']:.3f}")
+print(f"Precision: {metrics['precision']:.3f}")
+print(f"Recall: {metrics['recall']:.3f}")
+```
+
+### Running Inference on Plain Text
+
+```python
+from perscit_model.extraction.inference import InferenceModel
+
+# Load trained model
+model = InferenceModel(last_trained=True)
+
+# Process plain text (without citation tags)
+text = "As Homer says in Il. 7.268: Ajax hurled a rock toward the enemy."
+
+# Get predictions
+inputs, labels = model.process_text(text)
+
+# Insert predicted tags into text
+predicted_xml = model.insert_tags_into_xml(text, inputs, labels)
+print(predicted_xml)
+# Output: "As Homer says in <bibl>Il. 7.268</bibl>: <quote>Ajax hurled a rock toward the enemy.</quote>"
+```
+
+### Batch Inference (Efficient GPU Utilization)
+
+```python
+# Process multiple texts efficiently
+texts = [
+    "Herodotus mentions this in 8.82",
+    "Plato discusses justice in Rep. 332D: To each his due",
+    "See Thucydides 3.38 for details"
+]
+
+results = model.process_batch(texts, batch_size=32)
+
+for text, (inputs, labels) in zip(texts, results):
+    predicted_xml = model.insert_tags_into_xml(text, inputs, labels)
+    print(predicted_xml)
 ```
 
 ---
@@ -431,6 +423,7 @@ print(classification_report([ground_truth], [predictions]))
 - **Recall:** Of actual tags, how many did we find?
 - **F1-score:** Harmonic mean of precision and recall
 - **Entity-level F1:** Full span must match (stricter)
+- **Accuracy:** Token-level accuracy (less meaningful for imbalanced data)
 
 ---
 
@@ -446,13 +439,6 @@ print(classification_report([ground_truth], [predictions]))
 - Warmup steps: 500
 - Weight decay: 0.01
 
-**Transformer + CRF:**
-
-- Learning rate: 5e-5 (CRF may need slightly higher)
-- Batch size: 16 (CRF uses more memory)
-- Epochs: 3-5
-- CRF learning rate: Can be different from BERT (e.g., 1e-3)
-
 ### Hardware Requirements
 
 **Minimum:**
@@ -466,14 +452,6 @@ print(classification_report([ground_truth], [predictions]))
 - GPU: 16GB+ VRAM (e.g., V100, A100, RTX 3090)
 - RAM: 32GB
 - Storage: 50GB
-
-### Training Time Estimates
-
-With ~200MB JSONL data on single GPU:
-
-- Data preparation: 1-2 hours
-- Transformer training (3 epochs): 2-4 hours
-- Transformer+CRF training (3 epochs): 3-5 hours
 
 ---
 
@@ -1162,7 +1140,7 @@ with open("cit_data/resolved.jsonl") as f:
 | Confidence filtering (catch incorrect rules) | +2-3%                |
 | **Total hybrid coverage**                    | **~94-97%**          |
 
-**Key insight:** Even resolving 1/3 of unresolved cases is significant improvement.
+**Note** Even resolving 1/3 of unresolved cases is significant improvement.
 
 ## Evaluation Metrics
 
@@ -1187,12 +1165,21 @@ Unlike tag extraction, URN resolution should be split by **unique citation patte
 
 ### Tag Extraction
 
-1. **Data exploration:** Analyze `resolved.jsonl` statistics
-2. **Preprocessing:** Build data pipeline from JSONL to BIO format
-3. **Baseline model:** Train DeBERTa token classifier
-4. **Evaluation:** Measure performance on held-out test set
-5. **Advanced model:** Implement DeBERTa+CRF if baseline is insufficient
-6. **Error analysis:** Examine failure cases
+**Completed:**
+
+- ✅ Data pipeline (JSONL → BIO format with special tokens)
+- ✅ DeBERTa token classification model
+- ✅ Training pipeline with data splitting by filename
+- ✅ Evaluation metrics (seqeval for BIO tagging)
+- ✅ Inference model for predictions on plain text
+- ✅ Test suite (98 tests covering data loading, model, training)
+
+**Remaining:**
+
+- ⏳ Train on full dataset and tune hyperparameters
+- ⏳ Error analysis on test set predictions
+- ⏳ DeBERTa+CRF implementation (if baseline insufficient)
+- ⏳ Production deployment and inference optimization
 
 ### URN Resolution
 
@@ -1257,7 +1244,10 @@ perseus-citation-model/
 │       ├── extraction/                # Task 1: Tag Extraction (BIO tagging)
 │       │   ├── __init__.py
 │       │   ├── data_loader.py         # XML → special tokens → BIO labels
-│       │   └── model.py               # DeBERTa token classification model
+│       │   ├── model.py               # DeBERTa token classification model
+│       │   ├── train.py               # Training pipeline and data splitting
+│       │   ├── evaluate.py            # Evaluation on test set
+│       │   └── inference.py           # Inference model for predictions
 │       └── resolution/                # Task 2: URN Resolution
 │           ├── __init__.py
 │           └── data_loader.py         # Citation data loading for resolution
@@ -1295,6 +1285,7 @@ Instead of word-level BIO tagging with complex alignment, we use **special token
 2. **Add to Vocabulary**: Special tokens added to DeBERTa tokenizer (won't be split)
 3. **Tokenize**: DeBERTa tokenizes text with special tokens intact
 4. **Generate BIO Labels**: State machine generates labels based on special token positions
+5. **Strip Special Tokens**: Remove special tokens from input while keeping labels aligned
 
 **Example:**
 
@@ -1306,7 +1297,12 @@ Special:  [BIBL_START] Hdt. 8.82 [BIBL_END] some context
 Tokens:   [CLS] [BIBL_START] Hdt . 8 . 82 [BIBL_END] some context [SEP]
 ↓
 Labels:   -100  -100          B-  I- I- I- I- -100        O    O       -100
+↓ (strip special tokens)
+Final Tokens: [CLS] Hdt . 8 . 82 some context [SEP]
+Final Labels: -100  B-  I- I- I- I- O    O       -100
 ```
+
+**Key point:** The model sees only `[CLS] Hdt . 8 . 82 some context [SEP]` during training, NOT the special tokens. It must learn to predict citation boundaries from the context alone.
 
 **Advantages over word-level alignment:**
 
