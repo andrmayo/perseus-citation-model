@@ -220,13 +220,13 @@ def evaluate_model(
             all_predictions.append(filtered_pred)
 
             # Decode tokens to get stripped text for output (only non-padded tokens)
-            stripped_text = loader.tokenizer.decode(
+            stripped_text: str = loader.tokenizer.decode(
                 input_ids[:seq_length], skip_special_tokens=True
             )
 
             # For predicted XML, we need offset mapping
             # Re-tokenize just this one example to get offsets
-            tokens_for_xml = loader.tokenizer(
+            tokens_for_xml: transformers.BatchEncoding = loader.tokenizer(
                 stripped_text,
                 truncation=True,
                 max_length=max_length,
@@ -243,7 +243,7 @@ def evaluate_model(
 
             # Extract citations from both original and predicted XML
             original_citations = extract_citations(original_text)
-            predicted_citations = extract_citations(predicted_xml)
+            predicted_citations = extract_citations(cast(str, predicted_xml))
 
             # Store result (without labels - they can be inferred from XML)
             all_results.append(
