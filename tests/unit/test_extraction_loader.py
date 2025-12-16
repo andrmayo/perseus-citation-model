@@ -1,8 +1,8 @@
 """Unit tests for ExtractionDataLoader."""
 
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import pytest
 

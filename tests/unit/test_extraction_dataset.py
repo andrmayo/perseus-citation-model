@@ -1,16 +1,16 @@
 """Unit tests for extraction dataset creation and BIO label generation."""
 
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import pytest
 
 from perscit_model.extraction.data_loader import (
+    BIO_LABELS,
+    LABEL2ID,
     ExtractionDataLoader,
     create_extraction_dataset,
-    LABEL2ID,
-    BIO_LABELS,
 )
 
 

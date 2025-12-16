@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 
 from perscit_model.extraction.data_loader import (
-    ExtractionDataLoader,
-    create_extraction_dataset,
     LABEL2ID,
     SPECIAL_TOKENS,
+    ExtractionDataLoader,
+    create_extraction_dataset,
 )
 
 

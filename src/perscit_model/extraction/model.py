@@ -11,11 +11,10 @@ from transformers import (
 
 from perscit_model.extraction.data_loader import (
     BIO_LABELS,
-    LABEL2ID,
     ID2LABEL,
+    LABEL2ID,
     SPECIAL_TOKENS,
 )
-
 from perscit_model.shared.data_loader import DEFAULT_CONFIG
 from perscit_model.shared.training_utils import TrainingConfig
 

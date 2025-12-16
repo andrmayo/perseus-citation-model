@@ -1,9 +1,10 @@
 """Unit tests for inference module."""
 
+from unittest.mock import MagicMock, Mock, PropertyMock, patch
+
 import pytest
 import torch
 import transformers
-from unittest.mock import Mock, MagicMock, patch, PropertyMock
 
 from perscit_model.extraction.inference import InferenceModel
 

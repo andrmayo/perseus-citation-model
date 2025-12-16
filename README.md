@@ -427,6 +427,157 @@ print(classification_report([ground_truth], [predictions]))
 
 ---
 
+## Processing Full XML Documents
+
+The extraction model was trained on 512-token windows centered around citations. To process full XML documents that exceed this context window, we need a sliding window approach with special handling for:
+
+1. **Context window boundaries** (avoiding edge effects)
+2. **Split entities** (citations spanning multiple windows)
+3. **Existing citations** (preserving already-identified citations)
+4. **Reconstructing `<cit>` tags** (wrapping bibl-quote pairs)
+
+### Sliding Window Strategy: "Reliable Center" Method
+
+**Problem**: Citations near window edges may lack sufficient context, reducing prediction quality.
+
+**Solution**: Process with overlapping windows, but only trust predictions from the center region.
+
+**Algorithm**:
+
+1. **Window parameters**:
+   - Window size: 512 tokens (same as training)
+   - Stride: 256 tokens (50% overlap)
+   - Reliable region: Center 256 tokens of each window
+   - Exception: First and last windows trust predictions to document edges
+
+2. **Coverage guarantee**: Every position in the document appears in the center of at least one window
+
+3. **Handles split entities**: With 50% overlap, any entity < 256 tokens appears fully within some window's center
+
+**Example**:
+```
+Document: [============================]
+Window 1:  [512 tokens]
+           [  reliable ]
+Window 2:         [512 tokens]
+                  [  reliable ]
+Window 3:                [512 tokens]
+                         [  reliable ]
+```
+
+### Handling Existing Citations
+
+**Goal**: Supplement (not replace) existing citation tags in XML files.
+
+**Approach**: Post-hoc filtering after inference.
+
+**Algorithm**:
+
+1. **Extract existing citations**:
+   - Parse XML and identify all `<bibl>`, `<quote>`, `<cit>` tags
+   - Store as character-level spans: `[(start_pos, end_pos, tag_type), ...]`
+
+2. **Strip citation tags for inference**:
+   - Remove `<bibl>`, `<quote>`, `<cit>` tags (keep other XML tags)
+   - Run inference on stripped text
+
+3. **Merge predictions**:
+   - Filter out predicted entities that overlap with existing citations
+   - Keep existing citations unchanged
+   - Insert new predicted citations
+
+**Why this works**:
+- Model sees natural context around existing citations
+- Simple conflict resolution (existing citations take precedence)
+- Can later extend to more sophisticated merge strategies
+
+### Character-Level Label Merging
+
+**Problem**: Overlapping windows produce multiple predictions for the same tokens.
+
+**Solution**: Merge predictions at the character level, only using reliable regions.
+
+**Algorithm**:
+
+1. **Initialize**: Create character-level label array: `char_labels = ['O'] * len(text)`
+
+2. **For each window**:
+   - Get token-level predictions from model
+   - Convert to character-level using tokenizer offset mapping
+   - Determine reliable character range (e.g., chars corresponding to tokens 128-384)
+   - Update `char_labels` only in the reliable region
+
+3. **Extract entities**: Convert final `char_labels` to entity spans using BIO logic
+
+**Advantages**:
+- Handles split entities automatically (continuous character regions)
+- Clean merging of overlapping predictions
+- No special logic needed for window boundaries
+
+### Wrapping bibl-quote Pairs in `<cit>` Tags
+
+**Recall**: The model doesn't predict `<cit>` tags (no training examples). These must be inserted logically.
+
+**Pattern matching algorithm**:
+
+1. **Identify adjacent pairs**:
+   - `<bibl>` followed by `<quote>` (within max_distance)
+   - `<quote>` followed by `<bibl>` (within max_distance)
+
+2. **Wrapping heuristics** (tune as needed):
+   - Max distance: ~100 characters
+   - Must be in same paragraph/structural element
+   - Don't wrap if another citation tag appears between them
+
+3. **Insert `<cit>` wrapper**:
+   - Wrap the pair: `<cit><bibl>...</bibl><quote>...</quote></cit>`
+   - Preserve whitespace and other tags between elements
+
+**Example**:
+```xml
+Before: See <bibl>Hdt. 8.82</bibl>: <quote>Ajax hurled a rock</quote> for details.
+After:  See <cit><bibl>Hdt. 8.82</bibl>: <quote>Ajax hurled a rock</quote></cit> for details.
+```
+
+### Implementation Overview
+
+**High-level pipeline**:
+
+```python
+class XMLCitationProcessor:
+    """Process full XML documents with sliding window inference."""
+
+    def __init__(self, model_path, window_size=512, stride=256):
+        self.model = InferenceModel(model_path)
+        self.window_size = window_size
+        self.stride = stride
+
+    def process_file(self, xml_path, preserve_existing=True):
+        """
+        Process XML file and insert citation tags.
+
+        Steps:
+        1. Parse XML and extract existing citations
+        2. Strip citation tags from text
+        3. Create sliding windows
+        4. Run inference on each window
+        5. Merge predictions at character level (reliable regions only)
+        6. Filter predictions that conflict with existing citations
+        7. Wrap bibl-quote pairs in <cit> tags
+        8. Insert all tags into final XML
+        9. Validate and return result
+        """
+        pass
+```
+
+**Key parameters**:
+- `window_size`: Token length of each window (default: 512)
+- `stride`: Token overlap between windows (default: 256)
+- `preserve_existing`: Keep existing citation tags (default: True)
+- `max_bibl_quote_distance`: Max chars between bibl/quote for wrapping (default: 100)
+
+---
+
 ## Training Recommendations
 
 ### Hyperparameters

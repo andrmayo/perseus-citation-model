@@ -1,12 +1,12 @@
 """Unit tests for ResolutionDataLoader."""
 
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import pytest
 
-from perscit_model.resolution.data_loader import ResolutionDataLoader, ResolutionData
+from perscit_model.resolution.data_loader import ResolutionData, ResolutionDataLoader
 
 
 class TestResolutionDataLoader:

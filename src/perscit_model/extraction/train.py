@@ -11,23 +11,23 @@ import torch
 from datasets import DatasetDict
 from seqeval.metrics import (
     accuracy_score,
+    classification_report,
     f1_score,
     precision_score,
     recall_score,
-    classification_report,
 )
 from transformers import (
-    Trainer,
-    TrainingArguments,
     DataCollatorForTokenClassification,
     EarlyStoppingCallback,
+    Trainer,
+    TrainingArguments,
 )
 from transformers.trainer_utils import get_last_checkpoint
 
 from perscit_model.extraction.data_loader import (
+    ID2LABEL,
     ExtractionDataLoader,
     create_extraction_dataset,
-    ID2LABEL,
 )
 from perscit_model.extraction.model import create_model
 from perscit_model.shared.data_loader import DEFAULT_CONFIG

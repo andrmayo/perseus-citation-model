@@ -10,8 +10,14 @@ from pathlib import Path
 import pytest
 import torch
 
+from perscit_model.extraction.data_loader import (
+    BIO_LABELS,
+    ID2LABEL,
+    LABEL2ID,
+    SPECIAL_TOKENS,
+    ExtractionDataLoader,
+)
 from perscit_model.extraction.model import create_model, load_model_from_checkpoint
-from perscit_model.extraction.data_loader import BIO_LABELS, LABEL2ID, ID2LABEL, SPECIAL_TOKENS, ExtractionDataLoader
 
 
 @pytest.fixture(scope="module")

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from perscit_model.extraction.train import split_data, compute_metrics
+from perscit_model.extraction.train import compute_metrics, split_data
 
 
 class TestSplitData:

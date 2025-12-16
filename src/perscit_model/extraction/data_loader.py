@@ -3,13 +3,12 @@
 import multiprocessing
 import warnings
 from pathlib import Path
-from typing import Callable, cast, Generator
+from typing import Callable, Generator, cast
 
 from bs4 import BeautifulSoup
 from datasets import Dataset
 
 from perscit_model.shared.data_loader import SharedDataLoader
-
 
 SPECIAL_TAGS = ["<bibl>", "</bibl>", "<quote>", "</quote>", "<cit>", "</cit>"]
 SPECIAL_TOKENS = [

@@ -1,14 +1,14 @@
 import inspect
 import json
-import yaml
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Optional, Union
 
+import yaml
 from transformers import (
     EarlyStoppingCallback,
-    TrainingArguments,
     TrainerCallback,
+    TrainingArguments,
 )
 
 

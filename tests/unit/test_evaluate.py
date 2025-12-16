@@ -1,16 +1,17 @@
 """Unit tests for evaluation module."""
 
 import json
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, mock_open, patch
+
 import pytest
 import torch
 import transformers
-from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch, mock_open
 
 from perscit_model.extraction.evaluate import (
+    evaluate_model,
     extract_citations,
     strip_xml_tags,
-    evaluate_model,
 )
 
 

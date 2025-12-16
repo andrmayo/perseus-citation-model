@@ -3,16 +3,15 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Callable, cast
 
+import torch
 import transformers
 from torch import IntTensor
 
-from perscit_model.extraction.model import load_model_from_checkpoint
 from perscit_model.extraction.data_loader import (
-    ExtractionDataLoader,
     ID2LABEL,
+    ExtractionDataLoader,
 )
-
-import torch
+from perscit_model.extraction.model import load_model_from_checkpoint
 
 MODEL_TRAIN_DIR = Path(__file__).parent.parent.parent.parent / "outputs" / "extraction"
 MODEL_SAVE_DIR = (
@@ -22,11 +21,14 @@ MODEL_SAVE_DIR = (
 
 class InferenceModel:
     def __init__(
-        self, model_path: str | Path | None = None, last_trained=False, device: str | None = None, **kwargs
+        self,
+        model_path: str | Path | None = None,
+        last_trained=False,
+        device: str | None = None,
+        **kwargs,
     ):
         self.model = cast(
-            transformers.AutoModelForTokenClassification,
-            InferenceModel.load_model(model_path, last_trained),
+            torch.nn.Module, InferenceModel.load_model(model_path, last_trained)
         )
         self.loader = ExtractionDataLoader(**kwargs)
 
@@ -39,7 +41,9 @@ class InferenceModel:
         self.model.eval()  # Set to evaluation mode
 
     @staticmethod
-    def load_model(path: str | Path | None = None, last_trained=False):
+    def load_model(
+        path: str | Path | None = None, last_trained=False
+    ) -> transformers.AutoModelForTokenClassification:
         def check_path(p: str | Path) -> Path:
             if isinstance(p, str):
                 try:
@@ -86,7 +90,7 @@ class InferenceModel:
             labels: list of labels from prediction
 
         Returns:
-            List of strings of texts with XML tags (<bibl>, <quote>, <cit>) inserted from prediction
+            A string or list of strings of texts with XML tags (<bibl>, <quote>, <cit>) inserted from prediction
         """
         try:
             offset_mapping = cast(IntTensor, encoding["offset_mapping"])
@@ -256,7 +260,7 @@ class InferenceModel:
                 return_offsets_mapping=True,
             )
 
-            seq_length = inputs["input_ids"].shape[1]
+            seq_length = cast(torch.Tensor, inputs["input_ids"]).shape[1]
             if seq_length > max_length:
                 msg = f"""
                 Input text too long: {seq_length} tokens (max: {max_length}).

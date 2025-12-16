@@ -1,8 +1,8 @@
 """Unit tests for SharedDataLoader."""
 
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import pytest
 
