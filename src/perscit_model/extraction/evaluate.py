@@ -143,9 +143,9 @@ def evaluate_model(
     logger.info(f"Test dataset size: {len(test_dataset)}")
 
     # Extract ground truth data from dataset
-    all_tokenized_inputs = [example["input_ids"] for example in test_dataset]
-    all_ground_truth_labels = [example["labels"] for example in test_dataset]
-    all_attention_masks = [example["attention_mask"] for example in test_dataset]
+    all_tokenized_inputs = test_dataset["input_ids"]
+    all_ground_truth_labels = test_dataset["labels"]
+    all_attention_masks = test_dataset["attention_mask"]
 
     max_length = 512  # Model's maximum sequence length
 
@@ -194,7 +194,9 @@ def evaluate_model(
             original_text = example["xml_context"]
             example_idx = i + j
             true_labels = all_ground_truth_labels[example_idx]
-            attention_mask = all_attention_masks[example_idx]  # Original mask from dataset
+            attention_mask = all_attention_masks[
+                example_idx
+            ]  # Original mask from dataset
 
             # Get actual sequence length (excluding padding)
             seq_length = sum(attention_mask)
