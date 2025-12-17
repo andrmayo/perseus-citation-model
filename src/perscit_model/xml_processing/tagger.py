@@ -1,11 +1,9 @@
-import re
 from pathlib import Path
 from typing import Iterable
 
 from bs4 import BeautifulSoup
-from bs4.element import NavigableString
+from bs4.element import NavigableString, Tag
 
-from perscit_model.extraction.evaluate import strip_xml_tags
 from perscit_model.extraction.inference import InferenceModel
 
 
@@ -59,54 +57,89 @@ class CitationTagger:
     #
     # 7. Insert tags
 
-    def extract_existing_citations(
+    def strip_citation_tags(
         self, xml_content: str
     ) -> tuple[str, list[tuple[int, int, str]]]:
         """
-        Extract existing citation tags and their positions in stripped text.
+        Strip citation tags and track their positions in the stripped text.
 
         Returns:
             (stripped_text, citations)
-            where citations is a list of [start_char, end_char, tag_type)
+            where citations is a list of (start_char, end_char, tag_type)
             and positions are character offsets in stripped_text
         """
 
-        citation_pattern = re.compile(
-            r"<(bibl|quote|cit)(?:\s[^>]*)?>(.*?)</\1>", re.DOTALL | re.IGNORECASE
-        )
+        # Parse XML with BeautifulSoup
+        soup = BeautifulSoup(xml_content, "lxml")
 
-        citations_original = []
-        for match in citation_pattern.finditer(xml_content):
-            tag_name = match.group(1).upper()
-            content = match.group(2)
-            start = match.start()
-            end = match.end()
+        # Build stripped text while tracking citation positions
+        citations = []
+        stripped_parts = []
+        current_pos = 0
 
-            citations_original.append(
-                {
-                    "type": tag_name,
-                    "original_start": start,
-                    "original_end": end,
-                    "tag_length": end - start,
-                    "content_length": len(content),
-                }
+        def traverse(element: Tag) -> None:
+            """Recursively traverse the parse tree, building stripped text."""
+            nonlocal current_pos
+
+            # Check if this element is a citation tag
+            is_citation = element.name.lower() in (
+                "bibl",
+                "quote",
+                "cit",
             )
 
-        # Strip citation tags
-        stripped_text = strip_xml_tags(xml_content)
+            start_pos = None
+            if is_citation:
+                # Record the start position for citation
+                start_pos = current_pos
+            else:
+                # Foer non-citation tags, include the opening tag with attributes
+                attrs = "".join(
+                    f' {k}="{v}"' if isinstance(v, str) else f' {k}="{" ".join(v)}"'
+                    for k, v in element.attrs.items()
+                )
+                opening_tag = f"<{element.name}{attrs}>"
+                stripped_parts.append(opening_tag)
+                current_pos += len(opening_tag)
 
-        # Calculate positions in stripped text
-        citations_stripped = []
-        chars_removed = 0
+            # Process the element's contents
+            for child in element.children:
+                if isinstance(child, NavigableString):
+                    # Add text content to stripped output
+                    text = str(child)
+                    stripped_parts.append(text)
+                    current_pos += len(text)
+                elif isinstance(child, Tag):
+                    # Recursively process child tags
+                    traverse(child)
 
-        for cit in citations_original:
-            start_stripped = cit["original_start"] - chars_removed
-            end_stripped = start_stripped + cit["content_length"]
+            if is_citation:
+                # Record the citation span
+                end_pos = current_pos
+                citations.append((start_pos, end_pos, element.name.upper()))
+            else:
+                # For non-citation tags, include the closing tag
+                closing_tag = f"</{element.name}>"
+                stripped_parts.append(closing_tag)
+                current_pos += len(closing_tag)
 
-            citations_stripped.append((start_stripped, end_stripped, cit["type"]))
+        # Start traversal from the root
+        # lxml parser wraps content in <html><body>, so process body's children
+        body = soup.find("body")
+        if body:
+            for child in body.children:
+                if isinstance(child, NavigableString):
+                    text = str(child)
+                    stripped_parts.append(text)
+                    current_pos += len(text)
+                elif isinstance(child, Tag):
+                    traverse(child)
+        else:
+            # Fallback in case no body is found
+            traverse(soup)
+        stripped_text = "".join(stripped_parts)
 
-            # tag overhead = opening tag + closing tag
-            tag_overhead = cit["tag_length"] - cit["content_length"]
-            chars_removed += tag_overhead
+        # outer tags come before inner tags
+        citations.sort(key=lambda x: (x[0], -x[1]))
 
-        return stripped_text, citations_stripped
+        return stripped_text, citations
