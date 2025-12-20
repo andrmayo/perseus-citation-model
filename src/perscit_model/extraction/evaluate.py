@@ -17,7 +17,11 @@ from seqeval.metrics import (
 )
 from tqdm import tqdm
 
-from perscit_model.extraction.data_loader import ID2LABEL, ExtractionDataLoader
+from perscit_model.extraction.data_loader import (
+    create_extraction_dataset,
+    ID2LABEL,
+    ExtractionDataLoader,
+)
 from perscit_model.extraction.inference import InferenceModel
 
 logger = logging.getLogger(__name__)
@@ -137,7 +141,6 @@ def evaluate_model(
 
     # Create dataset using the SAME method as training - this ensures identical tokenization
     logger.info("Creating test dataset (same as training pipeline)...")
-    from perscit_model.extraction.data_loader import create_extraction_dataset
 
     test_dataset = create_extraction_dataset(test_path, num_proc=1)
     logger.info(f"Test dataset size: {len(test_dataset)}")

@@ -97,9 +97,6 @@ class SharedDataLoader:
         """
         Load tokenizer for the specified model.
 
-        Args:
-            model_name: HuggingFace model name (e.g., "microsoft/deberta-v3-base")
-
         Returns:
             Pretrained tokenizer for the model
         """

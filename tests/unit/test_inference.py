@@ -247,7 +247,7 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 7), (8, 9), (10, 18), (18, 19)])
         labels = ["O", "O", "O", "B-BIBL", "I-BIBL", "O"]
 
-        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels, None)
 
         assert "<bibl>a citation</bibl>" in result
 
@@ -258,7 +258,7 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 2), (3, 7), (8, 13), (14, 19), (19, 20)])
         labels = ["O", "O", "O", "B-QUOTE", "I-QUOTE", "O"]
 
-        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels, None)
 
         assert "<quote>hello there</quote>" in result
 
@@ -271,7 +271,7 @@ class TestInsertTags:
         ])
         labels = ["O", "B-BIBL", "I-BIBL", "O", "B-QUOTE", "I-QUOTE", "O"]
 
-        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels, None)
 
         assert "<bibl>First citation</bibl>" in result
         assert "<quote>second citation</quote>" in result
@@ -283,7 +283,7 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 10), (11, 15), (15, 16)])
         labels = ["O", "O", "O", "O", "O"]
 
-        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels, None)
 
         assert result == xml
 
@@ -295,10 +295,157 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 9), (9, 10), (0, 0), (0, 0)])
         labels = ["O", "B-BIBL", "I-BIBL", "O", "O", "O"]
 
-        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels, None)
 
         # Should only tag actual text, not special tokens
         assert "<bibl>Test text</bibl>" in result
+
+    def test_insert_tags_with_existing_citation_overlap(self, mock_inference_model):
+        """Test that predictions overlapping with existing citations are skipped."""
+        xml = "See Hdt. 8.82 for details."
+        tokens = torch.tensor([101, 2156, 2002, 8, 102])  # "See Hdt 8 ."
+        offset_mapping = torch.tensor([(0, 0), (0, 3), (4, 8), (9, 10), (10, 27)])
+        labels = ["O", "O", "B-BIBL", "I-BIBL", "O"]
+
+        # Existing citation covers "Hdt. 8.82" at positions 4-13
+        existing_citations = [(4, 13, "BIBL", "")]
+
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, existing_citations
+        )
+
+        # Should have only one <bibl> tag (the existing one)
+        assert result.count("<bibl>") == 1
+        assert "<bibl>Hdt. 8.82</bibl>" in result
+
+    def test_insert_tags_with_existing_citation_no_overlap(self, mock_inference_model):
+        """Test that non-overlapping predictions and existing citations both appear."""
+        xml = "First citation and second citation."
+        tokens = torch.tensor([101, 2034, 5992, 1998, 2117, 5992, 102])
+        offset_mapping = torch.tensor([
+            (0, 0), (0, 5), (6, 14), (15, 18), (19, 25), (26, 34), (34, 35)
+        ])
+        labels = ["O", "O", "O", "O", "B-QUOTE", "I-QUOTE", "O"]
+
+        # Existing citation on "First citation"
+        existing_citations = [(0, 14, "BIBL", "")]
+
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, existing_citations
+        )
+
+        # Should have both citations
+        assert "<bibl>First citation</bibl>" in result
+        assert "<quote>second citation</quote>" in result
+
+    def test_insert_tags_with_contiguous_same_type_skipped(self, mock_inference_model):
+        """Test that predictions contiguous with existing of same type are skipped."""
+        xml = "Hdt.continued here."
+        tokens = torch.tensor([101, 2002, 2506, 2182, 102])
+        offset_mapping = torch.tensor([
+            (0, 0), (0, 4), (4, 13), (14, 18), (18, 19)
+        ])
+        labels = ["O", "O", "B-BIBL", "I-BIBL", "O"]
+
+        # Existing BIBL ends at position 4, prediction starts at 4 (contiguous, no space)
+        existing_citations = [(0, 4, "BIBL", "")]
+
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, existing_citations
+        )
+
+        # Should only have the existing citation, not the contiguous prediction
+        assert result.count("<bibl>") == 1
+        assert "<bibl>Hdt.</bibl>" in result
+        # "continued here" should not be in a bibl tag
+        assert "continued here" in result
+        assert "<bibl>continued" not in result
+
+    def test_insert_tags_with_contiguous_different_type_kept(self, mock_inference_model):
+        """Test that predictions contiguous with existing of different type are kept."""
+        xml = "Hdt. 8.82 quoted text here."
+        tokens = torch.tensor([101, 2002, 8, 6367, 3793, 2182, 102])
+        offset_mapping = torch.tensor([
+            (0, 0), (0, 4), (5, 9), (10, 16), (17, 21), (22, 26), (26, 27)
+        ])
+        labels = ["O", "O", "O", "B-QUOTE", "I-QUOTE", "I-QUOTE", "O"]
+
+        # Existing BIBL ends at 9, QUOTE prediction starts at 10 (contiguous but different type)
+        existing_citations = [(0, 9, "BIBL", "")]
+
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, existing_citations
+        )
+
+        # Should have both tags
+        assert "<bibl>Hdt. 8.82</bibl>" in result
+        assert "<quote>quoted text here</quote>" in result
+
+    def test_insert_tags_with_multiple_existing_citations(self, mock_inference_model):
+        """Test pointer logic works correctly with multiple existing citations."""
+        xml = "First ref and middle text and last ref."
+        tokens = torch.tensor([101, 2034, 6643, 1998, 2690, 3793, 1998, 2197, 6643, 102])
+        offset_mapping = torch.tensor([
+            (0, 0), (0, 5), (6, 9), (10, 13), (14, 20), (21, 25), (26, 29), (30, 34), (35, 38), (38, 39)
+        ])
+        labels = ["O", "O", "O", "O", "B-BIBL", "I-BIBL", "O", "O", "O", "O"]
+
+        # Existing citations at start and end
+        existing_citations = [(0, 9, "QUOTE", ""), (30, 38, "QUOTE", "")]
+
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, existing_citations
+        )
+
+        # Should have existing quotes and predicted bibl in middle
+        assert "<quote>First ref</quote>" in result
+        assert "<bibl>middle text</bibl>" in result
+        assert "<quote>last ref</quote>" in result
+
+    def test_insert_tags_with_existing_empty_list(self, mock_inference_model):
+        """Test that empty existing_citations list works correctly."""
+        xml = "Test citation."
+        tokens = torch.tensor([101, 3231, 5992, 102])
+        offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 13), (13, 14)])
+        labels = ["O", "B-BIBL", "I-BIBL", "O"]
+
+        existing_citations = []
+
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, existing_citations
+        )
+
+        assert "<bibl>Test citation</bibl>" in result
+
+    def test_insert_tags_with_existing_none(self, mock_inference_model):
+        """Test that None existing_citations works correctly."""
+        xml = "Test citation."
+        tokens = torch.tensor([101, 3231, 5992, 102])
+        offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 13), (13, 14)])
+        labels = ["O", "B-BIBL", "I-BIBL", "O"]
+
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, None
+        )
+
+        assert "<bibl>Test citation</bibl>" in result
+
+    def test_insert_tags_with_existing_citation_with_attributes(self, mock_inference_model):
+        """Test that existing citation attributes are preserved."""
+        xml = "See Hdt. 8.82 for details."
+        tokens = torch.tensor([101, 2156, 2002, 8, 102])
+        offset_mapping = torch.tensor([(0, 0), (0, 3), (4, 8), (9, 10), (10, 27)])
+        labels = ["O", "O", "O", "O", "O"]
+
+        # Existing citation with attributes
+        existing_citations = [(4, 13, "BIBL", ' n="Hdt. 8.82" type="ancient"')]
+
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, existing_citations
+        )
+
+        # Should preserve the attributes
+        assert '<bibl n="Hdt. 8.82" type="ancient">Hdt. 8.82</bibl>' in result
 
 
 class TestLoadModel:

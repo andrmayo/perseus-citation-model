@@ -454,7 +454,7 @@ class TestDatasetCreationForEvaluation:
         """Test that evaluation uses create_extraction_dataset like training does."""
         output_dir = tmp_path / "output"
 
-        with patch('perscit_model.extraction.data_loader.create_extraction_dataset') as mock_create:
+        with patch('perscit_model.extraction.evaluate.create_extraction_dataset') as mock_create:
             with patch('perscit_model.extraction.evaluate.InferenceModel'):
                 with patch('perscit_model.extraction.evaluate.ExtractionDataLoader'):
                     # Mock dataset with expected structure
@@ -489,7 +489,7 @@ class TestDatasetCreationForEvaluation:
         """Test that ground truth labels come from dataset, not manual XML parsing."""
         output_dir = tmp_path / "output"
 
-        with patch('perscit_model.extraction.data_loader.create_extraction_dataset') as mock_create:
+        with patch('perscit_model.extraction.evaluate.create_extraction_dataset') as mock_create:
             with patch('perscit_model.extraction.evaluate.InferenceModel'):
                 with patch('perscit_model.extraction.evaluate.ExtractionDataLoader'):
                     # Create mock dataset with specific labels
