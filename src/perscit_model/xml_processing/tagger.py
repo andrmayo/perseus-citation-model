@@ -7,7 +7,7 @@ from typing import cast, Iterable, Iterator
 import torch
 import transformers
 from bs4 import BeautifulSoup
-from bs4.element import NavigableString, _RawAttributeValues, Tag
+from bs4.element import NavigableString, XMLAttributeDict, Tag
 
 
 import perscit_model.extraction.evaluate as evaluate
@@ -344,7 +344,7 @@ class CitationTagger:
         if not isinstance(next_sibling, Tag) or tag.name != next_sibling.name:
             return
 
-        merged_tag = soup.new_tag(tag.name, attrs=cast(_RawAttributeValues, tag.attrs))
+        merged_tag = soup.new_tag(tag.name, attrs=cast(XMLAttributeDict, tag.attrs))
         tag.insert_before(merged_tag)
 
         merged_tag.extend(tag.contents)
