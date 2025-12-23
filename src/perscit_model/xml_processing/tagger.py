@@ -22,15 +22,6 @@ logger = logging.getLogger(__name__)
 class CitationTagger:
     cit_elements: Iterable[str] = ("quote", "bibl")
 
-    @staticmethod
-    def _get_tag_name(element: _Element) -> str:
-        """Safely get tag name from lxml element, handling QNames and other types."""
-        try:
-            return etree.QName(element).localname
-        except (ValueError, TypeError):
-            # Fallback for non-standard tag types
-            return str(element.tag) if hasattr(element, "tag") else ""
-
     def __init__(
         self,
         model_path: str | Path,
@@ -313,6 +304,15 @@ class CitationTagger:
                 batch_attention_mask[i],
                 batch_offsets[i],
             )
+
+    @staticmethod
+    def _get_tag_name(element: _Element) -> str:
+        """Safely get tag name from lxml element, handling QNames and other types."""
+        try:
+            return etree.QName(element).localname
+        except (ValueError, TypeError):
+            # Fallback for non-standard tag types
+            return str(element.tag) if hasattr(element, "tag") else ""
 
     @classmethod
     def _handle_cit_elt(cls, element: _Element) -> None:
