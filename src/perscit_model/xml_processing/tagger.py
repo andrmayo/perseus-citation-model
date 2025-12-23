@@ -1,22 +1,35 @@
+import logging
 import tempfile
 from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat
 from pathlib import Path
-from typing import cast, Iterable, Iterator
+from typing import Iterable, Iterator
 
+from lxml import etree
+from lxml.etree import _Element
 import torch
 import transformers
-from bs4 import BeautifulSoup
-from bs4.element import NavigableString, XMLAttributeDict, Tag
 
 
 import perscit_model.extraction.evaluate as evaluate
 from perscit_model.extraction.data_loader import ID2LABEL, ExtractionDataLoader
 from perscit_model.extraction.inference import InferenceModel
+from perscit_model.shared.xml_utils import get_opening_tag, get_attrs_as_string
+
+logger = logging.getLogger(__name__)
 
 
 class CitationTagger:
     cit_elements: Iterable[str] = ("quote", "bibl")
+
+    @staticmethod
+    def _get_tag_name(element: _Element) -> str:
+        """Safely get tag name from lxml element, handling QNames and other types."""
+        try:
+            return etree.QName(element).localname
+        except (ValueError, TypeError):
+            # Fallback for non-standard tag types
+            return str(element.tag) if hasattr(element, "tag") else ""
 
     def __init__(
         self,
@@ -102,7 +115,9 @@ class CitationTagger:
         else:
             # discards all preexisting citation tags in XML
             xml_content, citations = evaluate.strip_xml_tags(xml_content), None
-        encoding: transformers.BatchEncoding = self.loader.tokenize_text(xml_content)
+        encoding: transformers.BatchEncoding = self.loader.tokenize_text(
+            xml_content, return_offsets_mapping=True
+        )
         input_ids = encoding.input_ids[0]
         attention_mask = encoding.attention_mask[0]
         offset_mapping = encoding.offset_mapping[0]
@@ -131,7 +146,7 @@ class CitationTagger:
         # this approach to wrapping adjacent <bibl> <quote> pairs in a <cit> tag
         # is somewhat inefficient, but much cleaner than incorporating this into
         # the core XML processing logic
-        cit_wrapped_xml = self.post_process(temp_path.read_text())
+        cit_wrapped_xml = self.post_process(temp_path.read_text(), xml_path)
         temp_path.write_text(cit_wrapped_xml)
         # atomic replace of original xml file
         if overwrite:
@@ -249,12 +264,12 @@ class CitationTagger:
         windows: list[dict[str, torch.Tensor]],
         window_indices: list[tuple[int, int]],
     ) -> Iterator[tuple[str, transformers.BatchEncoding, list[str]]]:
-        max_len = max(w["input_ids"].shape[0] for w in windows)
+        max_len = max(w["input_ids"].shape[1] for w in windows)
 
         batch_input_ids = torch.stack(
             [
                 torch.nn.functional.pad(
-                    w["attention_mask"], (0, max_len - len(w["input_ids"]))
+                    w["input_ids"].squeeze(0), (0, max_len - w["input_ids"].shape[1])
                 )
                 for w in windows
             ]
@@ -262,7 +277,8 @@ class CitationTagger:
         batch_attention_mask = torch.stack(
             [
                 torch.nn.functional.pad(
-                    w["attention_mask"], (0, max_len - len(w["attention_mask"]))
+                    w["attention_mask"].squeeze(0),
+                    (0, max_len - w["attention_mask"].shape[1]),
                 )
                 for w in windows
             ]
@@ -270,7 +286,8 @@ class CitationTagger:
         batch_offsets = torch.stack(
             [
                 torch.nn.functional.pad(
-                    w["offset_mapping"], (0, max_len - len(w["offset_mapping"]))
+                    w["offset_mapping"],
+                    (0, 0, 0, max_len - w["offset_mapping"].shape[0]),
                 )
                 for w in windows
             ]
@@ -298,82 +315,179 @@ class CitationTagger:
             )
 
     @classmethod
-    def _handle_cit_elt(cls, soup: BeautifulSoup, tag: Tag) -> None:
-        # skip if already inside a cit tag
-        if tag.find_parent("cit"):
-            return
-
-        next_sibling = tag.next_sibling
-
-        # If next sibling is whitespace-only, get the tag afterwards
-        next_tag = None
-        whitespace_between = None
-
-        if next_sibling and isinstance(next_sibling, NavigableString):
-            # check if it's only whitespace
-            as_str = str(next_sibling)
-            if (not as_str) or as_str.isspace():
-                whitespace_between = next_sibling
-                next_tag = next_sibling.next_sibling
-            else:
+    def _handle_cit_elt(cls, element: _Element) -> None:
+        """Wrap adjacent <bibl> and <quote> pairs in a <cit> tag."""
+        # Skip if already inside a cit tag
+        for ancestor in element.iterancestors():
+            if cls._get_tag_name(ancestor).lower() == "cit":
                 return
-        elif next_sibling and isinstance(next_sibling, Tag):
-            next_tag = next_sibling
-        else:
+
+        parent = element.getparent()
+        if parent is None:
             return
 
-        # Check if next tag is complementary type for <cit>
+        # Find element's index in parent's children
+        try:
+            index = list(parent).index(element)
+        except ValueError:
+            return
+
+        # Check for next sibling
+        if index + 1 >= len(parent):
+            return
+
+        next_elem = parent[index + 1]
+
+        # Check if element's tail (text after element) is whitespace-only
+        has_non_whitespace_between = element.tail and not element.tail.isspace()
+
+        # If there's non-whitespace text between, don't wrap
+        if has_non_whitespace_between:
+            return
+
+        # Check if next element is complementary type for <cit>
         if (
-            next_tag
-            and isinstance(next_tag, Tag)
-            and next_tag.name in cls.cit_elements
-            and tag.name != next_tag.name
+            cls._get_tag_name(next_elem).lower() in cls.cit_elements
+            and cls._get_tag_name(element).lower()
+            != cls._get_tag_name(next_elem).lower()
         ):
-            cit = soup.new_tag("cit")
-            tag.insert_before(cit)
-            cit.append(tag.extract())
-            if whitespace_between:
-                cit.append(whitespace_between.extract())
-            cit.append(next_tag.extract())
+            # Create new cit element
+            cit = etree.Element("cit")
+
+            # Save tails before moving elements
+            element_tail = (
+                element.tail
+            )  # Space between bibl and quote (stays inside cit)
+            next_elem_tail = next_elem.tail  # Text after quote (becomes cit's tail)
+
+            # Insert cit at current element's position
+            parent.insert(index, cit)
+
+            # Move current element into cit
+            parent.remove(element)
+            cit.append(element)
+            # Keep element's tail - it's now the space between bibl and quote inside cit
+            element.tail = element_tail
+
+            # Move next element into cit
+            parent.remove(next_elem)
+            cit.append(next_elem)
+            # Clear next_elem's tail since it's now inside cit
+            next_elem.tail = None
+
+            # The tail from next_elem becomes cit's tail (text after </cit>)
+            cit.tail = next_elem_tail
 
         return
 
     @staticmethod
-    def _handle_orphans(soup: BeautifulSoup, tag: Tag) -> None:
-        next_sibling = tag.next_sibling
-        if not isinstance(next_sibling, Tag) or tag.name != next_sibling.name:
+    def _handle_orphans(root: _Element, element: _Element) -> None:
+        """Merge adjacent citation elements of the same type (e.g., two <bibl> tags)."""
+        parent = element.getparent()
+        if parent is None:
             return
 
-        merged_tag = soup.new_tag(tag.name, attrs=cast(XMLAttributeDict, tag.attrs))
-        tag.insert_before(merged_tag)
+        # Find the element's index in parent's children
+        try:
+            index = list(parent).index(element)
+        except ValueError:
+            return
 
-        merged_tag.extend(tag.contents)
-        # Remove the original tag
-        tag.extract()
+        # Check if next sibling has the same tag
+        if index + 1 < len(parent):
+            next_elem = parent[index + 1]
+            # Only merge if they have the same tag AND are truly adjacent
+            # (no text or only whitespace between them)
+            has_non_whitespace_between = element.tail and not element.tail.isspace()
+            if (
+                CitationTagger._get_tag_name(next_elem)
+                == CitationTagger._get_tag_name(element)
+                and not has_non_whitespace_between
+            ):
+                # Merge next element into current element
+                # Concatenate text and children
+                if element.text:
+                    if not len(element):  # No children
+                        # Just append next element's content to this element's text
+                        if next_elem.text:
+                            element.text = element.text + next_elem.text
+                    else:
+                        # Has children - append to last child's tail
+                        last_child = element[-1]
+                        if last_child.tail:
+                            last_child.tail = last_child.tail + (next_elem.text or "")
+                        else:
+                            last_child.tail = next_elem.text
+                else:
+                    element.text = next_elem.text
 
-        # Keep merging as long as next tag is the same
-        while isinstance(next_sibling, Tag) and next_sibling.name == merged_tag.name:
-            temp_next = next_sibling.next_sibling
-            merged_tag.extend(next_sibling.contents)
-            next_sibling.extract()
-            next_sibling = temp_next
+                # Move all children from next element to current element
+                for child in list(next_elem):
+                    element.append(child)
+
+                # Preserve the tail of the next element
+                if next_elem.tail:
+                    element.tail = (element.tail or "") + next_elem.tail
+                else:
+                    element.tail = next_elem.tail
+
+                # Remove the next element
+                parent.remove(next_elem)
+
+                # Recursively check if there are more siblings to merge
+                CitationTagger._handle_orphans(root, element)
         return
 
     @classmethod
-    def post_process(cls, xml_string: str) -> str:
+    def post_process(cls, xml_string: str, xml_path: Path | None = None) -> str:
         """
         This handles citation tags that have been split
         across windows, and also encloses neighboring
         <bibl> and <quote> tags in a <cit> tag
         """
-        soup = BeautifulSoup(xml_string, "lxml")
+        # Check for and preserve XML declaration
+        xml_declaration = ""
+        if xml_string.lstrip().startswith("<?xml"):
+            # Extract the XML declaration
+            if "?>" in xml_string:
+                xml_declaration = xml_string[: xml_string.index("?>") + 2]
+                xml_string = xml_string[xml_string.index("?>") + 2 :]
 
-        for tag in soup.find_all(cls.cit_elements):
-            cls._handle_orphans(soup, tag)
-        for tag in soup.find_all(cls.cit_elements):
-            cls._handle_cit_elt(soup, tag)
+        # Parse with lxml - wrap in root element to handle fragments
+        try:
+            root = etree.fromstring(f"<root>{xml_string}</root>")
+        except etree.XMLSyntaxError as e:
+            path_info = f"file {xml_path}" if xml_path else "XML string"
+            logger.exception(f"lxml failed to process {path_info} with Exception: {e}")
+            # NOTE: could change this to skip files that can't be parsed
+            raise e
 
-        return str(soup.body.decode_contents()) if soup.body else str(soup)
+        # First pass: handle orphans (merge adjacent same-type tags)
+        for element in root.iter():
+            if cls._get_tag_name(element).lower() in cls.cit_elements:
+                cls._handle_orphans(root, element)
+
+        # Second pass: wrap bibl-quote pairs in cit tags
+        # Need to re-iterate because tree was modified
+        for element in root.iter():
+            if cls._get_tag_name(element).lower() in cls.cit_elements:
+                cls._handle_cit_elt(element)
+
+        # Serialize back to string without XML declaration
+        # Get the content inside our wrapper root element
+        result_parts = [xml_declaration] if xml_declaration else []
+        if root.text:
+            result_parts.append(root.text)
+        for child in root:
+            # tostring includes the element's tail by default, so don't add it separately
+            # xml_declaration=False ensures no <?xml...?> is added
+            result_parts.append(
+                etree.tostring(
+                    child, encoding="unicode", method="xml", xml_declaration=False
+                )
+            )
+
+        return "".join(result_parts)
 
     def _get_center(
         self,
@@ -405,29 +519,28 @@ class CitationTagger:
                 reliable_start = start + (self.window_size - self.stride) // 2
                 reliable_end = reliable_start + self.stride
 
-        center_ids = input_ids[start:end]
-        center_text = self.loader.tokenizer.decode(center_ids)
+        window_length = end - start
+        # Use window-relative indexing
+        center_ids = input_ids[:window_length]
+        center_text = self.loader.tokenizer.decode(center_ids, skip_special_tokens=True)
+
+        if isinstance(offset_mapping, torch.Tensor):
+            offset_map = offset_mapping[:window_length].unsqueeze(0)
+        else:
+            offset_map = [offset_mapping[:window_length]]
+
         center_encoding = transformers.BatchEncoding(
             {
-                "input_ids": center_ids,
-                "attention_mask": attention_mask[start:end],
-                "offset_mapping": offset_mapping[start:end],
+                "input_ids": center_ids.unsqueeze(0),
+                "attention_mask": attention_mask[:window_length].unsqueeze(0),
+                "offset_mapping": offset_map,
             }
         )
         return (
             center_text,
             center_encoding,
-            [labels[i] for i in range(reliable_start, reliable_end)],
+            [labels[i - start] for i in range(reliable_start, reliable_end)],
         )
-
-    #
-    # 4. Merge predictions (character-level)
-    #
-    # 5. Filter conflicts with exisitng citations
-    #
-    # 6. Wrap bibl-quote pairs
-    #
-    # 7. Insert tags
 
     def strip_citation_tags(
         self, xml_content: str
@@ -437,24 +550,40 @@ class CitationTagger:
 
         Returns:
             (stripped_text, citations)
-            where citations is a list of (start_char, end_char, tag_type)
+            where citations is a list of (start_char, end_char, tag_type, attributes)
             and positions are character offsets in stripped_text
         """
 
-        # Parse XML with BeautifulSoup
-        soup = BeautifulSoup(xml_content, "lxml")
+        # Check for and preserve XML declaration
+        xml_declaration = ""
+        if xml_content.lstrip().startswith("<?xml"):
+            # Extract the XML declaration
+            if "?>" in xml_content:
+                xml_declaration = xml_content[: xml_content.index("?>") + 2]
+                xml_content = xml_content[xml_content.index("?>") + 2 :]
+
+        # Parse XML with lxml - wrap in root element to handle fragments
+        try:
+            root = etree.fromstring(f"<root>{xml_content}</root>")
+        except etree.XMLSyntaxError:
+            # If it fails, try with HTML parser which is more lenient
+            from lxml import html
+
+            root = html.fromstring(f"<root>{xml_content}</root>")
 
         # Build stripped text while tracking citation positions
         citations = []
         stripped_parts = []
-        current_pos = 0
+        # Start position tracking after XML declaration (if present)
+        current_pos = len(xml_declaration)
 
-        def traverse(element: Tag) -> None:
+        def traverse(element: _Element) -> None:
             """Recursively traverse the parse tree, building stripped text."""
             nonlocal current_pos
 
             # Check if this element is a citation tag
-            is_citation = element.name.lower() in (
+            tag_name = CitationTagger._get_tag_name(element)
+            is_citation = tag_name.lower() in (
                 "bibl",
                 "quote",
                 "cit",
@@ -465,58 +594,51 @@ class CitationTagger:
                 # Record the start position for citation
                 start_pos = current_pos
             else:
-                # For non-citation tags, include the opening tag with attributes
-                attrs = "".join(
-                    f' {k}="{v}"' if isinstance(v, str) else f' {k}="{" ".join(v)}"'
-                    for k, v in element.attrs.items()
-                )
-                opening_tag = f"<{element.name}{attrs}>"
+                opening_tag = get_opening_tag(element)
                 stripped_parts.append(opening_tag)
                 current_pos += len(opening_tag)
 
-            # Process the element's contents
-            for child in element.children:
-                if isinstance(child, NavigableString):
-                    # Add text content to stripped output
-                    text = str(child)
-                    stripped_parts.append(text)
-                    current_pos += len(text)
-                elif isinstance(child, Tag):
-                    # Recursively process child tags
-                    traverse(child)
+            # Add element's text (text before first child)
+            if element.text:
+                stripped_parts.append(element.text)
+                current_pos += len(element.text)
+
+            # Process child elements
+            for child in element:
+                traverse(child)
+                # Add tail text (text after child element)
+                if child.tail:
+                    stripped_parts.append(child.tail)
+                    current_pos += len(child.tail)
 
             if is_citation:
                 # Record the citation span
                 end_pos = current_pos
-                cit_attrs = "".join(
-                    f' {k}="{v}"' if isinstance(v, str) else f' {k}="{" ".join(v)}"'
-                    for k, v in element.attrs.items()
-                )
-                citations.append((start_pos, end_pos, element.name.upper(), cit_attrs))
+                cit_attrs = get_attrs_as_string(element)
+                citations.append((start_pos, end_pos, tag_name.upper(), cit_attrs))
             else:
                 # For non-citation tags, include the closing tag
-                closing_tag = f"</{element.name}>"
+                closing_tag = f"</{tag_name}>"
                 stripped_parts.append(closing_tag)
                 current_pos += len(closing_tag)
 
-        # Start traversal from the root
-        # lxml parser wraps content in <html><body>, so process body's children
-        body = soup.find("body")
-        if body:
-            for child in body.children:
-                if isinstance(child, NavigableString):
-                    text = str(child)
-                    stripped_parts.append(text)
-                    current_pos += len(text)
-                elif isinstance(child, Tag):
-                    traverse(child)
-        else:
-            # Fallback in case no body is found
-            traverse(soup)
-        stripped_text = "".join(stripped_parts)
+        # Process root's children (unwrap our added root element)
+        if root.text:
+            stripped_parts.append(root.text)
+            current_pos += len(root.text)
+
+        for child in root:
+            traverse(child)
+            if child.tail:
+                stripped_parts.append(child.tail)
+                current_pos += len(child.tail)
+
+        # Rebuild the stripped text, preserving the XML declaration if it existed
+        result_parts = [xml_declaration] if xml_declaration else []
+        result_parts.extend(stripped_parts)
+        stripped_text = "".join(result_parts)
 
         # outer tags come before inner tags
         citations.sort(key=lambda x: (x[0], -x[1]))
 
         return stripped_text, citations
-        # return stripped_text, citations

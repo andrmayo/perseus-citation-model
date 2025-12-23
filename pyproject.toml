@@ -9,6 +9,7 @@ dependencies = [
   "bs4>=0.0.2",
   "datasets>=4.4.1",
   "lxml>=6.0.2",
+  "lxml-stubs>=0.5.1",
   "protobuf>=6.33.1",
   "sentencepiece>=0.2.1",
   "seqeval>=1.2.2",
@@ -44,6 +45,11 @@ dev = ["jupyterlab-vim>=4.1.4"]
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"] # Default: only run fast unit tests
 pythonpath = ["src"]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+filterwarnings = [
+  "ignore:This process.*is multi-threaded.*:DeprecationWarning",
+  "ignore:.*ill-defined.*:seqeval.metrics.v1.UndefinedMetricWarning",
+] # Keep an eye out for deadlocks, which would be causes by forking over spawning with multiprocessing
 # Clean up temp directories more aggressively (keep only last 3 runs)
 tmp_path_retention_count = 3
 tmp_path_retention_policy = "failed" # Only keep failed test dirs for debugging

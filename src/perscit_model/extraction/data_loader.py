@@ -1,14 +1,17 @@
 """Data loader for tag extraction task."""
 
+import logging
 import multiprocessing
+import re
 import warnings
 from pathlib import Path
 from typing import Callable, Generator, cast
 
-from bs4 import BeautifulSoup
 from datasets import Dataset
 
 from perscit_model.shared.data_loader import SharedDataLoader
+
+logger = logging.getLogger(__name__)
 
 SPECIAL_TAGS = ["<bibl>", "</bibl>", "<quote>", "</quote>", "<cit>", "</cit>"]
 SPECIAL_TOKENS = [
@@ -57,10 +60,8 @@ class ExtractionDataLoader(SharedDataLoader):
         Replace XML citation tags with special tokens for DeBERTa tokenizer.
 
         Pipeline:
-        1. Parse with BeautifulSoup to repair malformed XML
-        2. Remove attributes from citation tags (bibl, quote, cit)
-        3. Reconstruct repaired XML string
-        4. Replace citation tags with special tokens (surrounded by spaces)
+        1. Remove attributes from citation tags (bibl, quote, cit) using regex
+        2. Replace citation tags with special tokens
 
         Converts citation tags to special tokens:
         - <bibl> → [BIBL_START]
@@ -82,9 +83,10 @@ class ExtractionDataLoader(SharedDataLoader):
             The model learns to handle these nested structures.
 
         Note on tags orphaned in excerpting:
-            BeautifulSoup's lxml parser will handle malformed XML by ignoring orphaned
-            closing tags and auto-closing orphaned opening tags. This may result in
-            missing or extra markers, which the model must learn to be robust to.
+            This regex-based approach doesn't validate or repair XML structure, so
+            orphaned tags in excerpts will be converted directly to markers. This may
+            result in unpaired markers (e.g., [BIBL_START] without [BIBL_END]), which
+            the model must learn to be robust to.
 
         Args:
             xml_context: XML snippet (may be malformed from excerpting)
@@ -93,14 +95,10 @@ class ExtractionDataLoader(SharedDataLoader):
             - processed_text: Text with citation tags replaced by special tokens
         """
 
-        # Parse with BeautifulSoup to repair malformed XML
-        # and remove attributes from citation tags
-        soup = BeautifulSoup(xml_context, "lxml")
-        for tag in soup.find_all(cls.special_tags):
-            tag.attrs = {}
-
-        # Reconstruct repaired XML
-        cleaned_xml = str(soup)
+        # Remove attributes from citation tags using regex
+        # Match opening tags with attributes: <bibl ...> or <quote ...> or <cit ...>
+        # Replace with just the tag name: <bibl> or <quote> or <cit>
+        cleaned_xml = re.sub(r'<(bibl|quote|cit)\s+[^>]*>', r'<\1>', xml_context)
 
         # Replace citation tags with special tokens (no extra spaces since they're registered as special tokens)
         for tag, token in zip(SPECIAL_TAGS, SPECIAL_TOKENS):
