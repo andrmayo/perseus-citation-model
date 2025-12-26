@@ -75,7 +75,9 @@ class CitationTagger:
         # Parallelize file processing
         # Use 'spawn' instead of 'fork' to avoid CUDA initialization issues
         try:
-            with ProcessPoolExecutor(mp_context=multiprocessing.get_context('spawn')) as executor:
+            with ProcessPoolExecutor(
+                mp_context=multiprocessing.get_context("spawn")
+            ) as executor:
                 executor.map(
                     self.process_xml_file,
                     xml_path,
@@ -118,7 +120,7 @@ class CitationTagger:
             truncation=False,
             padding=False,
             return_tensors="pt",
-            return_offsets_mapping=True
+            return_offsets_mapping=True,
         )
         input_ids = encoding.input_ids[0]
         attention_mask = encoding.attention_mask[0]
@@ -137,7 +139,9 @@ class CitationTagger:
                 batch_encodings,
                 batch_labels,
                 batch_citations,
-            ) in self._stream_labels_batched(input_ids, attention_mask, offset_mapping, xml_content, citations):
+            ) in self._stream_labels_batched(
+                input_ids, attention_mask, offset_mapping, xml_content, citations
+            ):
                 # Skip empty results (from windows with no reliable center)
                 if not batch_strings or not batch_labels:
                     continue
@@ -217,7 +221,14 @@ class CitationTagger:
         xml_content: str,
         citations: None | list[tuple[int, int, str, str]] = None,
         batch_size: int | None = None,
-    ) -> Iterator[tuple[str, transformers.BatchEncoding, list[str], None | list[list[tuple[int, int, str, str]]]]]:
+    ) -> Iterator[
+        tuple[
+            str,
+            transformers.BatchEncoding,
+            list[str],
+            None | list[tuple[int, int, str, str]],
+        ]
+    ]:
         """
         Args:
             input_ids: BatchEncoding attribute with token ids
@@ -266,19 +277,25 @@ class CitationTagger:
                 last_reliable_end = window_end
             else:
                 if window_start == 0:
-                    last_reliable_end = self.stride + (self.window_size - self.stride) // 2
+                    last_reliable_end = (
+                        self.stride + (self.window_size - self.stride) // 2
+                    )
                 else:
                     last_reliable_end += self.stride
 
             # When batch is full, process it
             if len(windows) == batch_size:
-                yield from self._process_window_batch(windows, window_indices, xml_content, citations)
+                yield from self._process_window_batch(
+                    windows, window_indices, xml_content, citations
+                )
                 windows = []
                 window_indices = []
 
         # get last (incomplete) batch
         if windows:
-            yield from self._process_window_batch(windows, window_indices, xml_content, citations)
+            yield from self._process_window_batch(
+                windows, window_indices, xml_content, citations
+            )
 
     def _process_window_batch(
         self,
@@ -286,7 +303,14 @@ class CitationTagger:
         window_indices: list[tuple[int, int, int]],
         xml_content: str,
         citations: None | list[tuple[int, int, str, str]] = None,
-    ) -> Iterator[tuple[str, transformers.BatchEncoding, list[str], None | list[tuple[int, int, str, str]]]]:
+    ) -> Iterator[
+        tuple[
+            str,
+            transformers.BatchEncoding,
+            list[str],
+            None | list[tuple[int, int, str, str]],
+        ]
+    ]:
         max_len = max(w["input_ids"].shape[1] for w in windows)
 
         batch_input_ids = torch.stack(
@@ -328,16 +352,18 @@ class CitationTagger:
         for i, (start, end, prev_reliable_end) in enumerate(window_indices):
             window_length = end - start
             labels = [ID2LABEL[p] for p in predictions[i, :window_length].tolist()]
-            center_text, center_encoding, center_labels, chunk_citations = self._get_center(
-                labels,
-                start,
-                end,
-                prev_reliable_end,
-                batch_input_ids[i],
-                batch_attention_mask[i],
-                batch_offsets[i],
-                xml_content,
-                citations,
+            center_text, center_encoding, center_labels, chunk_citations = (
+                self._get_center(
+                    labels,
+                    start,
+                    end,
+                    prev_reliable_end,
+                    batch_input_ids[i],
+                    batch_attention_mask[i],
+                    batch_offsets[i],
+                    xml_content,
+                    citations,
+                )
             )
             yield center_text, center_encoding, center_labels, chunk_citations
 
@@ -358,10 +384,10 @@ class CitationTagger:
             (preamble, remaining_xml) where preamble contains all leading processing instructions
         """
         # Match all processing instructions at the start (including <?xml...?>)
-        match = re.match(r'(\s*(?:<\?.*?\?>\s*)+)', xml_string)
+        match = re.match(r"(\s*(?:<\?.*?\?>\s*)+)", xml_string)
         if match:
             preamble = match.group(1)
-            remaining = xml_string[len(preamble):]
+            remaining = xml_string[len(preamble) :]
             return preamble, remaining
         return "", xml_string
 
@@ -387,8 +413,10 @@ class CitationTagger:
         """
         # Convert to list of tuples for uniform processing
         if isinstance(offset_mapping, torch.Tensor):
-            offsets = [(int(offset_mapping[i, 0].item()), int(offset_mapping[i, 1].item()))
-                      for i in range(start_idx, end_idx)]
+            offsets = [
+                (int(offset_mapping[i, 0].item()), int(offset_mapping[i, 1].item()))
+                for i in range(start_idx, end_idx)
+            ]
         else:
             offsets = list(offset_mapping[start_idx:end_idx])
 
@@ -402,7 +430,9 @@ class CitationTagger:
         else:
             # All special tokens, use decode as fallback
             if fallback_ids is not None:
-                text = self.loader.tokenizer.decode(fallback_ids, skip_special_tokens=True)
+                text = self.loader.tokenizer.decode(
+                    fallback_ids, skip_special_tokens=True
+                )
             else:
                 text = ""
             return text, 0, len(text)
@@ -589,7 +619,12 @@ class CitationTagger:
         offset_mapping: torch.Tensor | list[tuple[int, int]],
         xml_content: str,
         citations: None | list[tuple[int, int, str, str]] = None,
-    ) -> tuple[str, transformers.BatchEncoding, list[str], None | list[tuple[int, int, str, str]]]:
+    ) -> tuple[
+        str,
+        transformers.BatchEncoding,
+        list[str],
+        None | list[tuple[int, int, str, str]],
+    ]:
         """
         Args:
             labels: the labels for the tokens in a given window
@@ -619,7 +654,12 @@ class CitationTagger:
         # This can happen for the last window if it's already been fully covered
         if reliable_start >= reliable_end:
             # Return empty result - will be filtered out by caller
-            return ("", transformers.BatchEncoding({"input_ids": torch.tensor([[]])}), [], None)
+            return (
+                "",
+                transformers.BatchEncoding({"input_ids": torch.tensor([[]])}),
+                [],
+                None,
+            )
 
         window_length = end - start
         # Use window-relative indexing
@@ -637,28 +677,38 @@ class CitationTagger:
             xml_content,
             reliable_offset_start,
             reliable_offset_end,
-            fallback_ids=center_ids[reliable_offset_start:reliable_offset_end]
+            fallback_ids=center_ids[reliable_offset_start:reliable_offset_end],
         )
 
         # Adjust offset_mapping to be relative to center_text instead of full xml_content
         # Use only the reliable center portion
         if isinstance(offset_mapping, torch.Tensor):
             # Clone and adjust offsets for the reliable center
-            offset_map = offset_mapping[reliable_offset_start:reliable_offset_end].clone()
+            offset_map = offset_mapping[
+                reliable_offset_start:reliable_offset_end
+            ].clone()
             offset_map[:, 0] -= char_start
             offset_map[:, 1] -= char_start
             offset_map = offset_map.unsqueeze(0)
         else:
             # Adjust list of tuples for the reliable center
             center_offsets = offset_mapping[reliable_offset_start:reliable_offset_end]
-            offset_map = [[(start - char_start, end - char_start) for start, end in center_offsets]]
+            offset_map = [
+                [
+                    (start - char_start, end - char_start)
+                    for start, end in center_offsets
+                ]
+            ]
 
         # Create encoding with only the reliable center tokens
-        reliable_length = reliable_end - reliable_start
         center_encoding = transformers.BatchEncoding(
             {
-                "input_ids": center_ids[reliable_offset_start:reliable_offset_end].unsqueeze(0),
-                "attention_mask": attention_mask[reliable_offset_start:reliable_offset_end].unsqueeze(0),
+                "input_ids": center_ids[
+                    reliable_offset_start:reliable_offset_end
+                ].unsqueeze(0),
+                "attention_mask": attention_mask[
+                    reliable_offset_start:reliable_offset_end
+                ].unsqueeze(0),
                 "offset_mapping": offset_map,
             }
         )
@@ -673,7 +723,9 @@ class CitationTagger:
                     # Adjust positions to be relative to center_text
                     adjusted_start = max(0, cit_start - char_start)
                     adjusted_end = min(len(center_text), cit_end - char_start)
-                    chunk_citations.append((adjusted_start, adjusted_end, tag_type, attrs))
+                    chunk_citations.append(
+                        (adjusted_start, adjusted_end, tag_type, attrs)
+                    )
 
         return (
             center_text,
