@@ -1,3 +1,4 @@
+import multiprocessing
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat
@@ -133,7 +134,8 @@ class InferenceModel:
 
         tokens = int_tens(encoding["input_ids"])
         try:
-            with ProcessPoolExecutor() as executor:
+            # Use 'spawn' instead of 'fork' to avoid CUDA initialization issues
+            with ProcessPoolExecutor(mp_context=multiprocessing.get_context('spawn')) as executor:
                 with_tags = list(
                     executor.map(
                         self._insert_tags,

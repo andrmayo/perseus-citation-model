@@ -1,4 +1,6 @@
 import logging
+import multiprocessing
+import re
 import tempfile
 from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat
@@ -65,12 +67,15 @@ class CitationTagger:
             preserve_existing: if True, do not overwrite existing citation tags
             copy: if True, create a copy of all XML files with tags added rather than modifying in place
         """
-        if not isinstance(xml_path, Iterable):
+        if isinstance(xml_path, Path) and xml_path.is_dir():
+            xml_path = list(xml_path.glob("*.xml"))
+        elif not isinstance(xml_path, Iterable):
             xml_path = [xml_path]
 
         # Parallelize file processing
+        # Use 'spawn' instead of 'fork' to avoid CUDA initialization issues
         try:
-            with ProcessPoolExecutor() as executor:
+            with ProcessPoolExecutor(mp_context=multiprocessing.get_context('spawn')) as executor:
                 executor.map(
                     self.process_xml_file,
                     xml_path,
@@ -106,8 +111,14 @@ class CitationTagger:
         else:
             # discards all preexisting citation tags in XML
             xml_content, citations = evaluate.strip_xml_tags(xml_content), None
-        encoding: transformers.BatchEncoding = self.loader.tokenize_text(
-            xml_content, return_offsets_mapping=True
+        # IMPORTANT: Use truncation=False and padding=False to tokenize the entire XML file
+        # The sliding window approach will handle chunking
+        encoding: transformers.BatchEncoding = self.loader.tokenizer(
+            xml_content,
+            truncation=False,
+            padding=False,
+            return_tensors="pt",
+            return_offsets_mapping=True
         )
         input_ids = encoding.input_ids[0]
         attention_mask = encoding.attention_mask[0]
@@ -125,11 +136,15 @@ class CitationTagger:
                 batch_strings,
                 batch_encodings,
                 batch_labels,
-            ) in self._stream_labels_batched(input_ids, attention_mask, offset_mapping):
+                batch_citations,
+            ) in self._stream_labels_batched(input_ids, attention_mask, offset_mapping, xml_content, citations):
+                # Skip empty results (from windows with no reliable center)
+                if not batch_strings or not batch_labels:
+                    continue
                 # Write a batch of characters to XML file with <cit>, <bibl>, and <quote> tags inserted
                 xml_string = "".join(
                     self.inference_model.insert_tags_into_xml(
-                        batch_strings, batch_encodings, batch_labels, citations
+                        batch_strings, batch_encodings, batch_labels, batch_citations
                     )
                 )
                 f.write(xml_string)
@@ -137,7 +152,8 @@ class CitationTagger:
         # this approach to wrapping adjacent <bibl> <quote> pairs in a <cit> tag
         # is somewhat inefficient, but much cleaner than incorporating this into
         # the core XML processing logic
-        cit_wrapped_xml = self.post_process(temp_path.read_text(), xml_path)
+        reconstructed_xml = temp_path.read_text()
+        cit_wrapped_xml = self.post_process(reconstructed_xml, xml_path)
         temp_path.write_text(cit_wrapped_xml)
         # atomic replace of original xml file
         if overwrite:
@@ -198,13 +214,16 @@ class CitationTagger:
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         offset_mapping: torch.Tensor | list[tuple[int, int]],
+        xml_content: str,
+        citations: None | list[tuple[int, int, str, str]] = None,
         batch_size: int | None = None,
-    ) -> Iterator[tuple[str, transformers.BatchEncoding, list[str]]]:
+    ) -> Iterator[tuple[str, transformers.BatchEncoding, list[str], None | list[list[tuple[int, int, str, str]]]]]:
         """
         Args:
             input_ids: BatchEncoding attribute with token ids
             attention_mask: batch_encoding attribute
             offset_mapping: Tensor where offset_mapping[i] gives a Tensor of shape (seq_length, 2)
+            xml_content: The original XML content text (for extracting windows)
             batch_size: dynamically set by default
         Returns:
             Iterator over tuples with the arguments for InferenceModel.insert_tags_into_xml
@@ -216,6 +235,7 @@ class CitationTagger:
         # Collect windows into batches
         windows = []
         window_indices = []
+        last_reliable_end = 0  # Track where the last window's reliable center ended
 
         # Create sliding windows
         n_tokens = len(input_ids)
@@ -238,23 +258,35 @@ class CitationTagger:
                     "offset_mapping": window_offsets,
                 }
             )
-            window_indices.append((window_start, window_end))
+            window_indices.append((window_start, window_end, last_reliable_end))
+
+            # Update last_reliable_end based on this window
+            if window_end - window_start < self.window_size:
+                # Last window - use all remaining tokens
+                last_reliable_end = window_end
+            else:
+                if window_start == 0:
+                    last_reliable_end = self.stride + (self.window_size - self.stride) // 2
+                else:
+                    last_reliable_end += self.stride
 
             # When batch is full, process it
             if len(windows) == batch_size:
-                yield from self._process_window_batch(windows, window_indices)
+                yield from self._process_window_batch(windows, window_indices, xml_content, citations)
                 windows = []
                 window_indices = []
 
         # get last (incomplete) batch
         if windows:
-            yield from self._process_window_batch(windows, window_indices)
+            yield from self._process_window_batch(windows, window_indices, xml_content, citations)
 
     def _process_window_batch(
         self,
         windows: list[dict[str, torch.Tensor]],
-        window_indices: list[tuple[int, int]],
-    ) -> Iterator[tuple[str, transformers.BatchEncoding, list[str]]]:
+        window_indices: list[tuple[int, int, int]],
+        xml_content: str,
+        citations: None | list[tuple[int, int, str, str]] = None,
+    ) -> Iterator[tuple[str, transformers.BatchEncoding, list[str], None | list[tuple[int, int, str, str]]]]:
         max_len = max(w["input_ids"].shape[1] for w in windows)
 
         batch_input_ids = torch.stack(
@@ -293,17 +325,21 @@ class CitationTagger:
                 input_ids=batch_input_ids, attention_mask=batch_attention_mask
             )
         predictions = outputs.logits.argmax(dim=-1)
-        for i, (start, end) in enumerate(window_indices):
+        for i, (start, end, prev_reliable_end) in enumerate(window_indices):
             window_length = end - start
             labels = [ID2LABEL[p] for p in predictions[i, :window_length].tolist()]
-            yield self._get_center(
+            center_text, center_encoding, center_labels, chunk_citations = self._get_center(
                 labels,
                 start,
                 end,
+                prev_reliable_end,
                 batch_input_ids[i],
                 batch_attention_mask[i],
                 batch_offsets[i],
+                xml_content,
+                citations,
             )
+            yield center_text, center_encoding, center_labels, chunk_citations
 
     @staticmethod
     def _get_tag_name(element: _Element) -> str:
@@ -313,6 +349,63 @@ class CitationTagger:
         except (ValueError, TypeError):
             # Fallback for non-standard tag types
             return str(element.tag) if hasattr(element, "tag") else ""
+
+    @staticmethod
+    def _extract_preamble(xml_string: str) -> tuple[str, str]:
+        """Extract XML declaration and processing instructions from the start of XML.
+
+        Returns:
+            (preamble, remaining_xml) where preamble contains all leading processing instructions
+        """
+        # Match all processing instructions at the start (including <?xml...?>)
+        match = re.match(r'(\s*(?:<\?.*?\?>\s*)+)', xml_string)
+        if match:
+            preamble = match.group(1)
+            remaining = xml_string[len(preamble):]
+            return preamble, remaining
+        return "", xml_string
+
+    def _extract_text_from_offsets(
+        self,
+        offset_mapping: torch.Tensor | list[tuple[int, int]],
+        xml_content: str,
+        start_idx: int,
+        end_idx: int,
+        fallback_ids: torch.Tensor | None = None,
+    ) -> tuple[str, int, int]:
+        """Extract text from xml_content using offset_mapping.
+
+        Args:
+            offset_mapping: Token offset mapping (can be Tensor or list of tuples)
+            xml_content: The original XML text
+            start_idx: Start index in offset_mapping
+            end_idx: End index in offset_mapping
+            fallback_ids: Token IDs to decode if all offsets are special tokens
+
+        Returns:
+            (text, char_start, char_end) where char_start/end are positions in xml_content
+        """
+        # Convert to list of tuples for uniform processing
+        if isinstance(offset_mapping, torch.Tensor):
+            offsets = [(int(offset_mapping[i, 0].item()), int(offset_mapping[i, 1].item()))
+                      for i in range(start_idx, end_idx)]
+        else:
+            offsets = list(offset_mapping[start_idx:end_idx])
+
+        # Filter out special tokens (offset = (0, 0))
+        non_zero_offsets = [(s, e) for s, e in offsets if s != e]
+
+        if non_zero_offsets:
+            char_start = non_zero_offsets[0][0]
+            char_end = non_zero_offsets[-1][1]
+            return xml_content[char_start:char_end], char_start, char_end
+        else:
+            # All special tokens, use decode as fallback
+            if fallback_ids is not None:
+                text = self.loader.tokenizer.decode(fallback_ids, skip_special_tokens=True)
+            else:
+                text = ""
+            return text, 0, len(text)
 
     @classmethod
     def _handle_cit_elt(cls, element: _Element) -> None:
@@ -445,13 +538,9 @@ class CitationTagger:
         across windows, and also encloses neighboring
         <bibl> and <quote> tags in a <cit> tag
         """
-        # Check for and preserve XML declaration
-        xml_declaration = ""
-        if xml_string.lstrip().startswith("<?xml"):
-            # Extract the XML declaration
-            if "?>" in xml_string:
-                xml_declaration = xml_string[: xml_string.index("?>") + 2]
-                xml_string = xml_string[xml_string.index("?>") + 2 :]
+        # Extract and preserve XML declaration and processing instructions
+        # These cannot be wrapped in a <root> element
+        preamble, xml_string = cls._extract_preamble(xml_string)
 
         # Parse with lxml - wrap in root element to handle fragments
         try:
@@ -473,9 +562,9 @@ class CitationTagger:
             if cls._get_tag_name(element).lower() in cls.cit_elements:
                 cls._handle_cit_elt(element)
 
-        # Serialize back to string without XML declaration
+        # Serialize back to string, restoring preamble (XML declaration + processing instructions)
         # Get the content inside our wrapper root element
-        result_parts = [xml_declaration] if xml_declaration else []
+        result_parts = [preamble] if preamble else []
         if root.text:
             result_parts.append(root.text)
         for child in root:
@@ -494,52 +583,103 @@ class CitationTagger:
         labels: list[str],
         start: int,
         end: int,
+        prev_reliable_end: int,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         offset_mapping: torch.Tensor | list[tuple[int, int]],
-    ) -> tuple[str, transformers.BatchEncoding, list[str]]:
+        xml_content: str,
+        citations: None | list[tuple[int, int, str, str]] = None,
+    ) -> tuple[str, transformers.BatchEncoding, list[str], None | list[tuple[int, int, str, str]]]:
         """
         Args:
             labels: the labels for the tokens in a given window
             start: start index for the window
             end: end index for the window
+            prev_reliable_end: where the previous window's reliable center ended
             offset_mapping: Tensor where offset_mapping[i] gives a Tensor of shape (seq_length, 2)
+            xml_content: The original XML content text
+            citations: List of existing citations with positions in xml_content
         Note:
             Offset_mapping is a Tensor if tokenization has return_tensors="pt", by default it's a list of tuples.
             Since the whole file is tokenized at once, there's only one sequence here.
         """
-        # Determine reliable center region of window
+        # Use prev_reliable_end to ensure no overlaps or gaps
+        reliable_start = prev_reliable_end
+        # Calculate reliable_end
         if end - start < self.window_size:
-            reliable_start, reliable_end = start, end
+            # Last window - use all remaining tokens
+            reliable_end = end
         else:
             if start == 0:
-                reliable_start = 0
                 reliable_end = self.stride + (self.window_size - self.stride) // 2
             else:
-                reliable_start = start + (self.window_size - self.stride) // 2
                 reliable_end = reliable_start + self.stride
+
+        # If reliable center is empty, skip this window
+        # This can happen for the last window if it's already been fully covered
+        if reliable_start >= reliable_end:
+            # Return empty result - will be filtered out by caller
+            return ("", transformers.BatchEncoding({"input_ids": torch.tensor([[]])}), [], None)
 
         window_length = end - start
         # Use window-relative indexing
         center_ids = input_ids[:window_length]
-        center_text = self.loader.tokenizer.decode(center_ids, skip_special_tokens=True)
 
+        # Extract text from original XML using offset_mapping instead of decoding
+        # This preserves the exact XML structure
+        # IMPORTANT: Only extract the reliable center portion, not the entire window
+        reliable_offset_start = reliable_start - start
+        reliable_offset_end = reliable_end - start
+
+        # Use helper method to extract text
+        center_text, char_start, char_end = self._extract_text_from_offsets(
+            offset_mapping,
+            xml_content,
+            reliable_offset_start,
+            reliable_offset_end,
+            fallback_ids=center_ids[reliable_offset_start:reliable_offset_end]
+        )
+
+        # Adjust offset_mapping to be relative to center_text instead of full xml_content
+        # Use only the reliable center portion
         if isinstance(offset_mapping, torch.Tensor):
-            offset_map = offset_mapping[:window_length].unsqueeze(0)
+            # Clone and adjust offsets for the reliable center
+            offset_map = offset_mapping[reliable_offset_start:reliable_offset_end].clone()
+            offset_map[:, 0] -= char_start
+            offset_map[:, 1] -= char_start
+            offset_map = offset_map.unsqueeze(0)
         else:
-            offset_map = [offset_mapping[:window_length]]
+            # Adjust list of tuples for the reliable center
+            center_offsets = offset_mapping[reliable_offset_start:reliable_offset_end]
+            offset_map = [[(start - char_start, end - char_start) for start, end in center_offsets]]
 
+        # Create encoding with only the reliable center tokens
+        reliable_length = reliable_end - reliable_start
         center_encoding = transformers.BatchEncoding(
             {
-                "input_ids": center_ids.unsqueeze(0),
-                "attention_mask": attention_mask[:window_length].unsqueeze(0),
+                "input_ids": center_ids[reliable_offset_start:reliable_offset_end].unsqueeze(0),
+                "attention_mask": attention_mask[reliable_offset_start:reliable_offset_end].unsqueeze(0),
                 "offset_mapping": offset_map,
             }
         )
+
+        # Filter and adjust citations for this chunk
+        chunk_citations = None
+        if citations:
+            chunk_citations = []
+            for cit_start, cit_end, tag_type, attrs in citations:
+                # Check if citation overlaps with this chunk's character range
+                if cit_end > char_start and cit_start < char_end:
+                    # Adjust positions to be relative to center_text
+                    adjusted_start = max(0, cit_start - char_start)
+                    adjusted_end = min(len(center_text), cit_end - char_start)
+                    chunk_citations.append((adjusted_start, adjusted_end, tag_type, attrs))
+
         return (
             center_text,
             center_encoding,
             [labels[i - start] for i in range(reliable_start, reliable_end)],
+            chunk_citations,
         )
 
     def strip_citation_tags(
@@ -554,13 +694,9 @@ class CitationTagger:
             and positions are character offsets in stripped_text
         """
 
-        # Check for and preserve XML declaration
-        xml_declaration = ""
-        if xml_content.lstrip().startswith("<?xml"):
-            # Extract the XML declaration
-            if "?>" in xml_content:
-                xml_declaration = xml_content[: xml_content.index("?>") + 2]
-                xml_content = xml_content[xml_content.index("?>") + 2 :]
+        # Extract and preserve XML declaration and processing instructions
+        # These cannot be wrapped in a <root> element
+        preamble, xml_content = self._extract_preamble(xml_content)
 
         # Parse XML with lxml - wrap in root element to handle fragments
         try:
@@ -574,8 +710,8 @@ class CitationTagger:
         # Build stripped text while tracking citation positions
         citations = []
         stripped_parts = []
-        # Start position tracking after XML declaration (if present)
-        current_pos = len(xml_declaration)
+        # Start position tracking after preamble (XML declaration + processing instructions)
+        current_pos = len(preamble)
 
         def traverse(element: _Element) -> None:
             """Recursively traverse the parse tree, building stripped text."""
@@ -633,8 +769,8 @@ class CitationTagger:
                 stripped_parts.append(child.tail)
                 current_pos += len(child.tail)
 
-        # Rebuild the stripped text, preserving the XML declaration if it existed
-        result_parts = [xml_declaration] if xml_declaration else []
+        # Rebuild the stripped text, preserving the preamble if it existed
+        result_parts = [preamble] if preamble else []
         result_parts.extend(stripped_parts)
         stripped_text = "".join(result_parts)
 

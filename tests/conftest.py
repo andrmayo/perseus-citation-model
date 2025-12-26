@@ -1,5 +1,7 @@
 """Shared pytest fixtures and configuration."""
 
+from pathlib import Path
+
 import pytest
 
 
@@ -45,3 +47,26 @@ def mock_tokenizer(mocker):
     )
 
     return mock_tok
+
+
+@pytest.fixture(scope="module")
+def real_tagger():
+    """Create a CitationTagger instance with a real model.
+
+    This is expensive to load, so we use module scope to share it across tests.
+    Tests using this fixture will actually run inference.
+    Uses CUDA if available for better performance, otherwise falls back to CPU.
+    """
+    import torch
+    from perscit_model.xml_processing.tagger import CitationTagger
+
+    model_path = Path(__file__).parent.parent / "outputs" / "models" / "extraction"
+
+    if not model_path.exists():
+        pytest.skip(f"Model not found at {model_path}")
+
+    # Use CUDA if available for faster inference, otherwise CPU
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    tagger = CitationTagger(model_path=str(model_path), device=device)
+
+    return tagger

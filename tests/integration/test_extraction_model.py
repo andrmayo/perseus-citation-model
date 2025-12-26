@@ -4,9 +4,6 @@ Note: These tests use real models (not mocks) because we need to test actual emb
 They will be slower but more accurate.
 """
 
-import tempfile
-from pathlib import Path
-
 import pytest
 import torch
 
@@ -55,10 +52,10 @@ class TestCreateModel:
         embeddings = model.get_input_embeddings().weight
 
         # Get the last len(SPECIAL_TOKENS) embeddings (the new ones)
-        new_embeddings = embeddings[-len(SPECIAL_TOKENS):, :]
+        new_embeddings = embeddings[-len(SPECIAL_TOKENS) :, :]
 
         # Get old embeddings (everything except new ones)
-        old_embeddings = embeddings[:-len(SPECIAL_TOKENS), :]
+        old_embeddings = embeddings[: -len(SPECIAL_TOKENS), :]
 
         # Calculate mean of old embeddings
         expected_mean = old_embeddings.mean(dim=0)
@@ -66,12 +63,14 @@ class TestCreateModel:
         # All new embeddings should be equal to this mean
         for i in range(len(SPECIAL_TOKENS)):
             # Use allclose for floating point comparison
-            assert torch.allclose(new_embeddings[i], expected_mean, rtol=1e-5, atol=1e-7)
+            assert torch.allclose(
+                new_embeddings[i], expected_mean, rtol=1e-5, atol=1e-7
+            )
 
     def test_all_new_embeddings_identical(self, model):
         """Test that all new special token embeddings are identical (all set to same mean)."""
         embeddings = model.get_input_embeddings().weight
-        new_embeddings = embeddings[-len(SPECIAL_TOKENS):, :]
+        new_embeddings = embeddings[-len(SPECIAL_TOKENS) :, :]
 
         # All new embeddings should be identical
         first_embedding = new_embeddings[0]

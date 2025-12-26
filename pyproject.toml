@@ -47,7 +47,6 @@ testpaths = ["tests/unit"] # Default: only run fast unit tests
 pythonpath = ["src"]
 markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 filterwarnings = [
-  "ignore:This process.*is multi-threaded.*:DeprecationWarning",
   "ignore:.*ill-defined.*:seqeval.metrics.v1.UndefinedMetricWarning",
 ] # Keep an eye out for deadlocks, which would be causes by forking over spawning with multiprocessing
 # Clean up temp directories more aggressively (keep only last 3 runs)
