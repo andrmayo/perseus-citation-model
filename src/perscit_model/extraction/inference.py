@@ -1,4 +1,5 @@
 import multiprocessing
+import re
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat
@@ -77,6 +78,144 @@ class InferenceModel:
             model_path = check_path(path)
         return load_model_from_checkpoint(model_path)
 
+    @staticmethod
+    def _get_tag_masks(
+        xml: str,
+    ) -> tuple[bytearray, bytearray]:
+        """Find existing XML element boundaries.
+
+        Returns:
+            xml_mask_opening, xml_mask_closing
+
+        For any given position, one can simply check xml_mask_opening[pos] == 1 to see if
+        it's an invalid position to treat as the first character in a new tag,
+        and xml_mask_closing[pos] == 1 to see if it's an invalid position for last character
+        in a new tag.
+
+        Examples:
+            "<p>text</p>" -> [0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1], [1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0] # The <p> and </p>
+            "text <gloss>word</gloss> more" ->
+                [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
+        """
+
+        # Find opening tags (including self-closing): <tagname>, <tagname attr="val">, <tagname/>
+        opening_pattern = re.compile(r"<\w+(?:\s[^>]*)?>")
+        # Find closing tags: </tagname>
+        closing_pattern = re.compile(r"</\w+>")
+
+        opening_tags = [match.span() for match in opening_pattern.finditer(xml)]
+        closing_tags = [match.span() for match in closing_pattern.finditer(xml)]
+
+        # Create boolean mask to mark positions where existing tags, e.g. <p>, are present
+        # We need separate masks for start and end positions
+        xml_mask_opening = bytearray(len(xml))
+        xml_mask_closing = bytearray(len(xml))
+
+        # Process opening tags
+        for start, end in opening_tags:
+            # Mark positions inside the opening tag as invalid for starting new tags
+            # Start from position start+1 because the '<' itself can be before a new tag
+            xml_mask_opening[start + 1 : end] = b"\x01" * (end - start - 1)
+
+            # For closing positions: the opening tag content should be invalid
+            # But if it's self-closing, the last '>' can be a valid end position
+            if xml[end - 2 : end] == "/>":
+                # Self-closing tag: mark everything except the last '>' as invalid for ending
+                xml_mask_closing[start : end - 1] = b"\x01" * (end - start - 1)
+            else:
+                # Regular opening tag: mark everything including '>' as invalid for ending
+                xml_mask_closing[start:end] = b"\x01" * (end - start)
+
+        # Process closing tags
+        for start, end in closing_tags:
+            # Mark all positions inside closing tag as invalid for starting new tags
+            xml_mask_opening[start:end] = b"\x01" * (end - start)
+
+            # For ending positions: everything except the final '>' is invalid
+            xml_mask_closing[start : end - 1] = b"\x01" * (end - start - 1)
+
+        partial_tag_start_pattern = re.compile(r"^[^<]*>")
+        partial_tag_start = partial_tag_start_pattern.search(xml)
+        partial_tag_end_pattern = re.compile(r"<[^>]*$")
+        partial_tag_end = partial_tag_end_pattern.search(xml)
+
+        if partial_tag_start:
+            start, end = partial_tag_start.span()
+            xml_mask_opening[start:end] = b"\x01" * (end - start)
+            if "/>" in partial_tag_start.group(0):
+                end -= 1
+            xml_mask_closing[start:end] = b"\x01" * (end - start)
+        if partial_tag_end:
+            start, end = partial_tag_end.span()
+            xml_mask_closing[start:end] = b"\x01" * (end - start)
+            # There's no way to tell if this is an opening tag, so we assume it is
+            start += 1
+            xml_mask_opening[start:end] = b"\x01" * (end - start)
+
+        return xml_mask_opening, xml_mask_closing
+
+    @staticmethod
+    def _adjust_invalid_boundaries(
+        opening_pos: int,
+        closing_pos: int,
+        xml_mask_opening: bytearray,
+        xml_mask_closing: bytearray,
+    ) -> tuple[int | None, int | None]:
+        """Adjust entity boundary if it would otherwise produce invalid XML.
+
+        Args:
+            opening_pos: index of start of label span
+            closing_pos: index of end of label span
+            xml_mask_opening: bytearray indicating whether character is valid start for new tag
+            xml_mask_closing: bytearray indicating whether character is valid end for new tag
+
+        Returns:
+            Adjusted positions that don't fall inside a tag, or (None, None) if no valid
+            positions can be found within bounds
+
+        Strategy:
+            - If START is invalid (inside tag markup): move RIGHT to next valid position
+            - If END is invalid (inside tag markup): move LEFT to previous valid position
+            This ensures we never split existing tags.
+            Note that this does not in fact ensure valid XML, since the inserted tags
+            can straddle existing tags and invalidate the parse tree. Additional validation
+            is needed to prevent this.
+
+        Example:
+            Text: "word <gloss>translation</gloss> more"
+            Opening tag at (5, 12): "<gloss>"
+
+            Entity start=8 (inside tag) -> adjust to start=12 (after tag)
+            Entity end=27 (inside </gloss>) -> adjust to end=23 (before tag)
+        """
+        # Adjust opening position: move right while invalid
+        while (
+            opening_pos < len(xml_mask_opening) and xml_mask_opening[opening_pos] == 1
+        ):
+            opening_pos += 1
+
+        # Adjust closing position: move left while invalid
+        # Note: closing_pos can be len(xml_mask_closing) which means "after last char"
+        # In that case, we don't need to adjust it (it's a valid end position)
+        if closing_pos >= len(xml_mask_closing):
+            # Already at or past the end - this is valid, don't adjust
+            pass
+        else:
+            # Move left while position is invalid
+            while closing_pos >= 0 and xml_mask_closing[closing_pos] == 1:
+                closing_pos -= 1
+
+        # Check if we went out of bounds during adjustment
+        if opening_pos >= len(xml_mask_opening) or closing_pos < 0:
+            return (None, None)
+
+        # Check if adjusted positions make sense (start should be before end)
+        if opening_pos > closing_pos:
+            return (None, None)
+
+        return (opening_pos, closing_pos)
+
     def insert_tags_into_xml(
         self,
         xml: str | list[str],
@@ -135,7 +274,9 @@ class InferenceModel:
         tokens = int_tens(encoding["input_ids"])
         try:
             # Use 'spawn' instead of 'fork' to avoid CUDA initialization issues
-            with ProcessPoolExecutor(mp_context=multiprocessing.get_context('spawn')) as executor:
+            with ProcessPoolExecutor(
+                mp_context=multiprocessing.get_context("spawn")
+            ) as executor:
                 with_tags = list(
                     executor.map(
                         self._insert_tags,
@@ -270,16 +411,34 @@ class InferenceModel:
         if current_entity:
             entities.append(current_entity)
 
-        entities += prior_entities
-        entities.sort(key=lambda x: x["start"])
-
         # Trim leading/trailing whitespace from entity boundaries
         # (tokenizer offset_mapping includes spaces in ranges)
         for entity in entities:
+            entity["start"], entity["end"] = (
+                ExtractionDataLoader.trim_offset_whitespace(
+                    xml, entity["start"], entity["end"]
+                )
+            )
+
+        xml_mask_opening, xml_mask_closing = InferenceModel._get_tag_masks(xml)
+
+        # Adjust entity boundaries to avoid splitting existing XML entities
+        # Filter out entities that can't be adjusted to valid positions
+        adjusted_entities = []
+        for entity in entities:
             start, end = entity["start"], entity["end"]
-            start, end = ExtractionDataLoader.trim_offset_whitespace(xml, start, end)
-            entity["start"] = start
-            entity["end"] = end
+            adjusted_start, adjusted_end = InferenceModel._adjust_invalid_boundaries(
+                start, end, xml_mask_opening, xml_mask_closing
+            )
+
+            # Skip entities that couldn't be adjusted to valid positions
+            if adjusted_start is not None and adjusted_end is not None:
+                entity["start"], entity["end"] = adjusted_start, adjusted_end
+                adjusted_entities.append(entity)
+
+        # Merge with prior entities and sort
+        entities = adjusted_entities + prior_entities
+        entities.sort(key=lambda x: x["start"])
 
         # build text segments
         segments = []

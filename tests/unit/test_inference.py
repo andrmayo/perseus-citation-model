@@ -1,6 +1,6 @@
 """Unit tests for inference module."""
 
-from unittest.mock import MagicMock, Mock, PropertyMock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 import torch
@@ -35,9 +35,15 @@ def mock_loader():
 @pytest.fixture
 def mock_inference_model(mock_model, mock_loader):
     """Create an InferenceModel with mocked dependencies."""
-    with patch('perscit_model.extraction.inference.InferenceModel.load_model', return_value=mock_model):
-        with patch('perscit_model.extraction.inference.ExtractionDataLoader', return_value=mock_loader):
-            with patch('torch.cuda.is_available', return_value=False):
+    with patch(
+        "perscit_model.extraction.inference.InferenceModel.load_model",
+        return_value=mock_model,
+    ):
+        with patch(
+            "perscit_model.extraction.inference.ExtractionDataLoader",
+            return_value=mock_loader,
+        ):
+            with patch("torch.cuda.is_available", return_value=False):
                 model = InferenceModel()
     return model
 
@@ -47,20 +53,34 @@ class TestInferenceModelInit:
 
     def test_init_sets_device_to_cuda_when_available(self, mock_model, mock_loader):
         """Test that model is moved to CUDA when available."""
-        with patch('perscit_model.extraction.inference.InferenceModel.load_model', return_value=mock_model):
-            with patch('perscit_model.extraction.inference.ExtractionDataLoader', return_value=mock_loader):
-                with patch('torch.cuda.is_available', return_value=True):
+        with patch(
+            "perscit_model.extraction.inference.InferenceModel.load_model",
+            return_value=mock_model,
+        ):
+            with patch(
+                "perscit_model.extraction.inference.ExtractionDataLoader",
+                return_value=mock_loader,
+            ):
+                with patch("torch.cuda.is_available", return_value=True):
                     model = InferenceModel()
 
         assert model.device == "cuda"
         mock_model.to.assert_called_once_with("cuda")
         mock_model.eval.assert_called_once()
 
-    def test_init_sets_device_to_cpu_when_cuda_unavailable(self, mock_model, mock_loader):
+    def test_init_sets_device_to_cpu_when_cuda_unavailable(
+        self, mock_model, mock_loader
+    ):
         """Test that model stays on CPU when CUDA unavailable."""
-        with patch('perscit_model.extraction.inference.InferenceModel.load_model', return_value=mock_model):
-            with patch('perscit_model.extraction.inference.ExtractionDataLoader', return_value=mock_loader):
-                with patch('torch.cuda.is_available', return_value=False):
+        with patch(
+            "perscit_model.extraction.inference.InferenceModel.load_model",
+            return_value=mock_model,
+        ):
+            with patch(
+                "perscit_model.extraction.inference.ExtractionDataLoader",
+                return_value=mock_loader,
+            ):
+                with patch("torch.cuda.is_available", return_value=False):
                     model = InferenceModel()
 
         assert model.device == "cpu"
@@ -68,8 +88,14 @@ class TestInferenceModelInit:
 
     def test_init_respects_explicit_device(self, mock_model, mock_loader):
         """Test that explicit device parameter is respected."""
-        with patch('perscit_model.extraction.inference.InferenceModel.load_model', return_value=mock_model):
-            with patch('perscit_model.extraction.inference.ExtractionDataLoader', return_value=mock_loader):
+        with patch(
+            "perscit_model.extraction.inference.InferenceModel.load_model",
+            return_value=mock_model,
+        ):
+            with patch(
+                "perscit_model.extraction.inference.ExtractionDataLoader",
+                return_value=mock_loader,
+            ):
                 model = InferenceModel(device="cuda:1")
 
         assert model.device == "cuda:1"
@@ -87,7 +113,9 @@ class TestProcessBatch:
         mock_inference_model.loader.tokenizer.return_value = {
             "input_ids": torch.tensor([[101, 2023, 2003, 1037, 3231, 102]]),
             "attention_mask": torch.tensor([[1, 1, 1, 1, 1, 1]]),
-            "offset_mapping": torch.tensor([[(0, 0), (0, 4), (5, 7), (8, 9), (10, 14), (14, 15)]]),
+            "offset_mapping": torch.tensor(
+                [[(0, 0), (0, 4), (5, 7), (8, 9), (10, 14), (14, 15)]]
+            ),
         }
 
         # Mock model output
@@ -111,16 +139,17 @@ class TestProcessBatch:
         mock_inference_model.loader.tokenizer.return_value = {
             "input_ids": torch.tensor([[101, 2023, 102, 0], [101, 2019, 3231, 102]]),
             "attention_mask": torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]]),
-            "offset_mapping": torch.tensor([
-                [(0, 0), (0, 5), (5, 6), (0, 0)],
-                [(0, 0), (0, 6), (7, 11), (11, 12)]
-            ]),
+            "offset_mapping": torch.tensor(
+                [[(0, 0), (0, 5), (5, 6), (0, 0)], [(0, 0), (0, 6), (7, 11), (11, 12)]]
+            ),
         }
 
-        mock_logits = torch.tensor([
-            [[0.1, 0.9, 0.0]] * 4,
-            [[0.1, 0.9, 0.0]] * 4,
-        ])
+        mock_logits = torch.tensor(
+            [
+                [[0.1, 0.9, 0.0]] * 4,
+                [[0.1, 0.9, 0.0]] * 4,
+            ]
+        )
         mock_output = Mock()
         mock_output.logits = mock_logits
         mock_inference_model.model.return_value = mock_output
@@ -165,6 +194,7 @@ class TestProcessBatch:
         # Track calls to the model while preserving config
         calls_to_model = []
         original_config = mock_inference_model.model.config
+
         def mock_model_call(**kwargs):
             calls_to_model.append(kwargs)
             return mock_output
@@ -195,7 +225,9 @@ class TestProcessText:
         }
         mock_inference_model.loader.tokenize_text.return_value = mock_encoding
 
-        mock_logits = torch.tensor([[[0.1, 0.9, 0.0], [0.8, 0.1, 0.1], [0.1, 0.9, 0.0]]])
+        mock_logits = torch.tensor(
+            [[[0.1, 0.9, 0.0], [0.8, 0.1, 0.1], [0.1, 0.9, 0.0]]]
+        )
         mock_output = Mock()
         mock_output.logits = mock_logits
         mock_inference_model.model.return_value = mock_output
@@ -220,7 +252,11 @@ class TestInsertTagsIntoXml:
         labels = ["O", "B-BIBL", "I-BIBL", "I-BIBL", "O"]
 
         # Mock _insert_tags to return tagged text
-        with patch.object(mock_inference_model, '_insert_tags', return_value="<bibl>This is a</bibl> citation."):
+        with patch.object(
+            mock_inference_model,
+            "_insert_tags",
+            return_value="<bibl>This is a</bibl> citation.",
+        ):
             result = mock_inference_model.insert_tags_into_xml(text, encoding, labels)
 
         assert isinstance(result, str)
@@ -244,10 +280,14 @@ class TestInsertTags:
         """Test inserting BIBL tags."""
         xml = "This is a citation."
         tokens = torch.tensor([101, 2023, 2003, 1037, 5992, 102])
-        offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 7), (8, 9), (10, 18), (18, 19)])
+        offset_mapping = torch.tensor(
+            [(0, 0), (0, 4), (5, 7), (8, 9), (10, 18), (18, 19)]
+        )
         labels = ["O", "O", "O", "B-BIBL", "I-BIBL", "O"]
 
-        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels, None)
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, None
+        )
 
         assert "<bibl>a citation</bibl>" in result
 
@@ -255,10 +295,14 @@ class TestInsertTags:
         """Test inserting QUOTE tags."""
         xml = "He said hello there."
         tokens = torch.tensor([101, 2002, 2056, 7592, 2045, 102])
-        offset_mapping = torch.tensor([(0, 0), (0, 2), (3, 7), (8, 13), (14, 19), (19, 20)])
+        offset_mapping = torch.tensor(
+            [(0, 0), (0, 2), (3, 7), (8, 13), (14, 19), (19, 20)]
+        )
         labels = ["O", "O", "O", "B-QUOTE", "I-QUOTE", "O"]
 
-        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels, None)
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, None
+        )
 
         assert "<quote>hello there</quote>" in result
 
@@ -266,12 +310,14 @@ class TestInsertTags:
         """Test inserting multiple citation tags."""
         xml = "First citation and second citation."
         tokens = torch.tensor([101, 2034, 5992, 1998, 2117, 5992, 102])
-        offset_mapping = torch.tensor([
-            (0, 0), (0, 5), (6, 14), (15, 18), (19, 25), (26, 34), (34, 35)
-        ])
+        offset_mapping = torch.tensor(
+            [(0, 0), (0, 5), (6, 14), (15, 18), (19, 25), (26, 34), (34, 35)]
+        )
         labels = ["O", "B-BIBL", "I-BIBL", "O", "B-QUOTE", "I-QUOTE", "O"]
 
-        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels, None)
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, None
+        )
 
         assert "<bibl>First citation</bibl>" in result
         assert "<quote>second citation</quote>" in result
@@ -283,7 +329,9 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 10), (11, 15), (15, 16)])
         labels = ["O", "O", "O", "O", "O"]
 
-        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels, None)
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, None
+        )
 
         assert result == xml
 
@@ -295,7 +343,9 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 9), (9, 10), (0, 0), (0, 0)])
         labels = ["O", "B-BIBL", "I-BIBL", "O", "O", "O"]
 
-        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels, None)
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, None
+        )
 
         # Should only tag actual text, not special tokens
         assert "<bibl>Test text</bibl>" in result
@@ -322,9 +372,9 @@ class TestInsertTags:
         """Test that non-overlapping predictions and existing citations both appear."""
         xml = "First citation and second citation."
         tokens = torch.tensor([101, 2034, 5992, 1998, 2117, 5992, 102])
-        offset_mapping = torch.tensor([
-            (0, 0), (0, 5), (6, 14), (15, 18), (19, 25), (26, 34), (34, 35)
-        ])
+        offset_mapping = torch.tensor(
+            [(0, 0), (0, 5), (6, 14), (15, 18), (19, 25), (26, 34), (34, 35)]
+        )
         labels = ["O", "O", "O", "O", "B-QUOTE", "I-QUOTE", "O"]
 
         # Existing citation on "First citation"
@@ -342,9 +392,7 @@ class TestInsertTags:
         """Test that predictions contiguous with existing of same type are skipped."""
         xml = "Hdt.continued here."
         tokens = torch.tensor([101, 2002, 2506, 2182, 102])
-        offset_mapping = torch.tensor([
-            (0, 0), (0, 4), (4, 13), (14, 18), (18, 19)
-        ])
+        offset_mapping = torch.tensor([(0, 0), (0, 4), (4, 13), (14, 18), (18, 19)])
         labels = ["O", "O", "B-BIBL", "I-BIBL", "O"]
 
         # Existing BIBL ends at position 4, prediction starts at 4 (contiguous, no space)
@@ -361,13 +409,15 @@ class TestInsertTags:
         assert "continued here" in result
         assert "<bibl>continued" not in result
 
-    def test_insert_tags_with_contiguous_different_type_kept(self, mock_inference_model):
+    def test_insert_tags_with_contiguous_different_type_kept(
+        self, mock_inference_model
+    ):
         """Test that predictions contiguous with existing of different type are kept."""
         xml = "Hdt. 8.82 quoted text here."
         tokens = torch.tensor([101, 2002, 8, 6367, 3793, 2182, 102])
-        offset_mapping = torch.tensor([
-            (0, 0), (0, 4), (5, 9), (10, 16), (17, 21), (22, 26), (26, 27)
-        ])
+        offset_mapping = torch.tensor(
+            [(0, 0), (0, 4), (5, 9), (10, 16), (17, 21), (22, 26), (26, 27)]
+        )
         labels = ["O", "O", "O", "B-QUOTE", "I-QUOTE", "I-QUOTE", "O"]
 
         # Existing BIBL ends at 9, QUOTE prediction starts at 10 (contiguous but different type)
@@ -384,10 +434,23 @@ class TestInsertTags:
     def test_insert_tags_with_multiple_existing_citations(self, mock_inference_model):
         """Test pointer logic works correctly with multiple existing citations."""
         xml = "First ref and middle text and last ref."
-        tokens = torch.tensor([101, 2034, 6643, 1998, 2690, 3793, 1998, 2197, 6643, 102])
-        offset_mapping = torch.tensor([
-            (0, 0), (0, 5), (6, 9), (10, 13), (14, 20), (21, 25), (26, 29), (30, 34), (35, 38), (38, 39)
-        ])
+        tokens = torch.tensor(
+            [101, 2034, 6643, 1998, 2690, 3793, 1998, 2197, 6643, 102]
+        )
+        offset_mapping = torch.tensor(
+            [
+                (0, 0),
+                (0, 5),
+                (6, 9),
+                (10, 13),
+                (14, 20),
+                (21, 25),
+                (26, 29),
+                (30, 34),
+                (35, 38),
+                (38, 39),
+            ]
+        )
         labels = ["O", "O", "O", "O", "B-BIBL", "I-BIBL", "O", "O", "O", "O"]
 
         # Existing citations at start and end
@@ -430,7 +493,9 @@ class TestInsertTags:
 
         assert "<bibl>Test citation</bibl>" in result
 
-    def test_insert_tags_with_existing_citation_with_attributes(self, mock_inference_model):
+    def test_insert_tags_with_existing_citation_with_attributes(
+        self, mock_inference_model
+    ):
         """Test that existing citation attributes are preserved."""
         xml = "See Hdt. 8.82 for details."
         tokens = torch.tensor([101, 2156, 2002, 8, 102])
@@ -448,6 +513,80 @@ class TestInsertTags:
         assert '<bibl n="Hdt. 8.82" type="ancient">Hdt. 8.82</bibl>' in result
 
 
+    def test_insert_tags_avoids_splitting_opening_tag_markup(
+        self, mock_inference_model
+    ):
+        """Test that entity start falling inside opening tag markup gets adjusted."""
+        # Text: "word <gloss>translation</gloss> more"
+        # <gloss> tag markup at positions 5-12
+        xml = "word <gloss>translation</gloss> more"
+        tokens = torch.tensor([101, 2773, 5358, 2062, 102])
+        # Predicted entity starts at 8 (inside <gloss> markup), ends at 23 (clean)
+        # Would create: word <glo<cit>ss>translation</cit></gloss> more (INVALID!)
+        # Should adjust start to avoid being inside the tag markup
+        offset_mapping = torch.tensor([(0, 0), (0, 4), (8, 23), (32, 36), (36, 37)])
+        labels = ["O", "O", "B-CIT", "O", "O"]
+
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, None
+        )
+
+        # Should NOT split the opening tag markup
+        assert "<glo<cit>" not in result
+        # Should produce valid XML (either inside or outside the gloss element)
+        assert "<gloss>" in result
+        assert "</gloss>" in result
+
+    def test_insert_tags_avoids_splitting_closing_tag_markup(
+        self, mock_inference_model
+    ):
+        """Test that entity end falling inside closing tag markup gets adjusted."""
+        # Text: "word <gloss>translation</gloss> more"
+        # </gloss> tag markup at positions 23-31
+        xml = "word <gloss>translation</gloss> more"
+        tokens = torch.tensor([101, 2773, 5358, 2062, 102])
+        # Predicted entity starts at 12 (clean), ends at 27 (inside </gloss> markup)
+        # Would create: word <gloss><cit>translation</glo</cit>ss> more (INVALID!)
+        # Should adjust end to avoid being inside the tag markup
+        offset_mapping = torch.tensor([(0, 0), (0, 4), (12, 27), (32, 36), (36, 37)])
+        labels = ["O", "B-CIT", "I-CIT", "O", "O"]
+
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, None
+        )
+
+        # Should NOT split the closing tag markup
+        assert "</glo</cit>" not in result
+        assert "</cit>ss>" not in result
+        # Should produce valid XML
+        assert "<gloss>" in result
+        assert "</gloss>" in result
+
+    def test_insert_tags_avoids_splitting_self_closing_tag_markup(
+        self, mock_inference_model
+    ):
+        """Test that boundaries inside self-closing tag markup get adjusted."""
+        # Text: "text <pb n='5'/> more content"
+        # Self-closing tag <pb n='5'/> at positions 5-17
+        xml = "text <pb n='5'/> more content"
+        tokens = torch.tensor([101, 3793, 2062, 3906, 102])
+        # Predicted entity starts at 10 (inside <pb n='5'/> markup), ends at 22
+        # Would create: text <pb n=<cit>'5'/> more</cit> content (INVALID!)
+        # Should adjust start to avoid being inside the tag markup
+        offset_mapping = torch.tensor([(0, 0), (0, 4), (10, 22), (23, 29), (0, 0)])
+        labels = ["O", "O", "B-QUOTE", "I-QUOTE", "O"]
+
+        result = mock_inference_model._insert_tags(
+            xml, tokens, offset_mapping, labels, None
+        )
+
+        # Should NOT split the self-closing tag markup
+        assert "n=<quote>" not in result
+        assert "n='<quote>" not in result
+        # Should produce valid XML
+        assert "<pb n='5'/>" in result or "<pb n=\"5\"/>" in result
+
+
 class TestLoadModel:
     """Tests for load_model static method."""
 
@@ -459,8 +598,10 @@ class TestLoadModel:
             Mock(stat=Mock(return_value=Mock(st_mtime=200))),  # Most recent
         ]
 
-        with patch('perscit_model.extraction.inference.MODEL_TRAIN_DIR', mock_path):
-            with patch('perscit_model.extraction.inference.load_model_from_checkpoint') as mock_load:
+        with patch("perscit_model.extraction.inference.MODEL_TRAIN_DIR", mock_path):
+            with patch(
+                "perscit_model.extraction.inference.load_model_from_checkpoint"
+            ) as mock_load:
                 InferenceModel.load_model(last_trained=True)
 
         # Should load the most recent model
@@ -471,6 +612,6 @@ class TestLoadModel:
         mock_path = Mock()
         mock_path.glob.return_value = []
 
-        with patch('perscit_model.extraction.inference.MODEL_TRAIN_DIR', mock_path):
+        with patch("perscit_model.extraction.inference.MODEL_TRAIN_DIR", mock_path):
             with pytest.raises(FileNotFoundError, match="No final models"):
                 InferenceModel.load_model(last_trained=True)
