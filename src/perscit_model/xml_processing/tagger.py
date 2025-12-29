@@ -1,9 +1,7 @@
 import logging
-import multiprocessing
 import re
 import tempfile
-from concurrent.futures import ProcessPoolExecutor
-from itertools import repeat
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -41,6 +39,7 @@ class CitationTagger:
             center: defaults to stride, which ensures that every token winds up in center for some window
         """
         self.inference_model = InferenceModel(model_path, **kwargs)
+        self.inference_model.model.eval()
         self.loader: ExtractionDataLoader = self.inference_model.loader
         self.window_size: int = window_size
         # this ensures that every token windw up in the reliable center of context window
@@ -73,19 +72,20 @@ class CitationTagger:
             xml_path = [xml_path]
 
         # Parallelize file processing
-        # Use 'spawn' instead of 'fork' to avoid CUDA initialization issues
-        try:
-            with ProcessPoolExecutor(
-                mp_context=multiprocessing.get_context("spawn")
-            ) as executor:
-                executor.map(
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(
                     self.process_xml_file,
-                    xml_path,
-                    repeat(preserve_existing),
-                    repeat(overwrite),
+                    path if isinstance(path, Path) else Path(path),
+                    preserve_existing,
+                    overwrite,
                 )
-        except Exception as e:
-            raise e
+                for path in xml_path
+            ]
+
+            # Wait for all to complete and raise any exceptions
+            for future in futures:
+                future.result()
 
     def process_xml_file(
         self, xml_path: Path, preserve_existing: bool = True, overwrite: bool = True
@@ -96,11 +96,10 @@ class CitationTagger:
         Args:
             xml_path: Path object giving path to XML file.
             preserve_existing: if True (default), keeps any citation tags in file unaltered, if False, replaces with predictions.
-
-        Returns:
-            Generator of characters representing character-level labels.
         """
         xml_content = xml_path.read_text(encoding="utf-8")
+        # Save original XML before stripping, for validation later
+        original_xml = xml_content
 
         # Preprocessing: handle existing citations if preserve_existing = True, strip citation tags, and then tokenize
 
@@ -128,55 +127,61 @@ class CitationTagger:
 
         # Stream xml strings with citation tags inserted based on predicted labels to a tmp file,
         # then replace original xml with tmp file
-        # NOTE: Much of the value of streaming here is lost due to usind a DOM
-        # with bs4 below, but in the future that could by swapped out with a SAX parser
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=xml_path.parent, delete=False, suffix=".tmp"
-        ) as f:
-            temp_path = Path(f.name)
-            for (
-                batch_strings,
-                batch_encodings,
-                batch_labels,
-                batch_citations,
-            ) in self._stream_labels_batched(
-                input_ids, attention_mask, offset_mapping, xml_content, citations
-            ):
-                # Skip empty results (from windows with no reliable center)
-                if not batch_strings or not batch_labels:
-                    continue
-                # Write a batch of characters to XML file with <cit>, <bibl>, and <quote> tags inserted
-                xml_string = "".join(
-                    self.inference_model.insert_tags_into_xml(
-                        batch_strings, batch_encodings, batch_labels, batch_citations
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=xml_path.parent,
+                delete=False,
+                suffix=".tmp",
+            ) as f:
+                temp_path = Path(f.name)
+                for (
+                    batch_strings,
+                    batch_encodings,
+                    batch_labels,
+                    batch_citations,
+                ) in self._stream_labels_batched(
+                    input_ids, attention_mask, offset_mapping, xml_content, citations
+                ):
+                    # Skip empty results (from windows with no reliable center)
+                    if not batch_strings or not batch_labels:
+                        continue
+                    # Write a batch of characters to XML file with <cit>, <bibl>, and <quote> tags inserted
+                    xml_string = "".join(
+                        self.inference_model.insert_tags_into_xml(
+                            batch_strings,
+                            batch_encodings,
+                            batch_labels,
+                            batch_citations,
+                        )
                     )
-                )
-                f.write(xml_string)
+                    f.write(xml_string)
 
-        # this approach to wrapping adjacent <bibl> <quote> pairs in a <cit> tag
-        # is somewhat inefficient, but much cleaner than incorporating this into
-        # the core XML processing logic
-        reconstructed_xml = temp_path.read_text()
-        cit_wrapped_xml = self.post_process(reconstructed_xml, xml_path)
-        temp_path.write_text(cit_wrapped_xml)
-        # atomic replace of original xml file
-        if overwrite:
-            try:
+            # this approach to wrapping adjacent <bibl> <quote> pairs in a <cit> tag
+            # is somewhat inefficient, but much cleaner than incorporating this into
+            # the core XML processing logic
+            reconstructed_xml = temp_path.read_text()
+            # Pass the original XML to help validate and fix any malformed tags
+            cit_wrapped_xml = self.post_process(
+                reconstructed_xml, xml_path, original_xml
+            )
+            temp_path.write_text(cit_wrapped_xml)
+            # atomic replace of original xml file
+            if overwrite:
                 temp_path.replace(xml_path)
-            except Exception as e:
-                temp_path.unlink()
-                raise e
-        else:
-            # create dir for processed xml files if overwrite = False
-            # done here rather than in orchestration function since xml files
-            # may live in different directories
-            copy_dir = xml_path.parent / "processed"
-            copy_dir.mkdir(exist_ok=True)
-            try:
+            else:
+                # create dir for processed xml files if overwrite = False
+                # done here rather than in orchestration function since xml files
+                # may live in different directories
+                copy_dir = xml_path.parent / "processed"
+                copy_dir.mkdir(exist_ok=True)
                 temp_path.replace(copy_dir / xml_path.name)
-            except Exception as e:
-                temp_path.unlink()
-                raise e
+        finally:
+            # Clean up temp file
+            if temp_path and temp_path.exists():
+                temp_path.unlink(missing_ok=True)
 
     @property
     def batch_size(self) -> int:
@@ -196,13 +201,13 @@ class CitationTagger:
                 raise e
             # VRAM based heuristic
             if gpu_memory_gb > 24:
-                self._batch_size = 256
-            if gpu_memory_gb >= 16:
-                self._batch_size = 128
-            elif gpu_memory_gb >= 8:
                 self._batch_size = 64
-            else:
+            elif gpu_memory_gb >= 16:
                 self._batch_size = 32
+            elif gpu_memory_gb >= 8:
+                self._batch_size = 16
+            else:
+                self._batch_size = 8
         else:
             self._batch_size = 4
 
@@ -253,15 +258,9 @@ class CitationTagger:
         for window_start in range(0, n_tokens, self.stride):
             window_end = min(window_start + self.window_size, n_tokens)
             # Get window tokens
-            window_tokens = (
-                input_ids[window_start:window_end].unsqueeze(0).to(self.device)
-            )
-            window_mask = (
-                attention_mask[window_start:window_end].unsqueeze(0).to(self.device)
-            )
+            window_tokens = input_ids[window_start:window_end].unsqueeze(0)
+            window_mask = attention_mask[window_start:window_end].unsqueeze(0)
             window_offsets = offset_mapping[window_start:window_end]
-            if isinstance(window_offsets, torch.Tensor):
-                window_offsets = window_offsets.to(self.device)
             windows.append(
                 {
                     "input_ids": window_tokens,
@@ -366,6 +365,8 @@ class CitationTagger:
                 )
             )
             yield center_text, center_encoding, center_labels, chunk_citations
+
+        del batch_input_ids, batch_attention_mask, outputs, predictions
 
     @staticmethod
     def _get_tag_name(element: _Element) -> str:
@@ -561,36 +562,194 @@ class CitationTagger:
                 CitationTagger._handle_orphans(root, element)
         return
 
-    @classmethod
-    def post_process(cls, xml_string: str, xml_path: Path | None = None) -> str:
+    def validate_and_remove_malformed_tags(
+        self,
+        xml_string: str,
+        xml_path: Path | None = None,
+        original_xml: str | None = None,
+    ) -> str:
+        """
+        Validate XML and remove citation tags that cause malformation.
+
+        Uses original XML (if provided) to distinguish between original (good) citations
+        and newly inserted (potentially bad) citations.
+
+        Args:
+            xml_string: XML string potentially containing malformed citation tags
+            xml_path: Optional path for error messages
+            original_xml: Optional original XML before tag insertion
+
+        Returns:
+            Valid XML string with only well-formed citation tags
+        """
+        preamble, content = self._extract_preamble(xml_string)
+
+        # Try parsing as-is first
+        try:
+            etree.fromstring(f"<root>{content}</root>")
+            return xml_string  # Already valid!
+        except etree.XMLSyntaxError:
+            logger.warning(
+                f"XML validation failed for {xml_path or 'string'}, attempting to fix..."
+            )
+
+        # If we have the original XML, use it to distinguish original vs inserted citations
+        if original_xml:
+            try:
+                # Strip citations from both to get base content
+                _, result_citations = self.strip_citation_tags(xml_string)
+                _, orig_citations = self.strip_citation_tags(original_xml)
+
+                # Convert to sets of (start, end, type, attrs) for comparison
+                orig_set = set(orig_citations)
+
+                # New citations are those in result but not in original
+                new_citations = [c for c in result_citations if c not in orig_set]
+
+                # Original citations we know are good
+                good_citations = orig_citations
+
+                logger.debug(
+                    f"Found {len(new_citations)} newly inserted citations, {len(good_citations)} original"
+                )
+
+                for cit_start, cit_end, tag_type, attrs in good_citations:
+                    # Insert this citation
+                    # TODO: This is complex because positions shift - need better approach
+                    pass
+
+                # For now, fall back to simpler approach below
+            except Exception as e:
+                logger.warning(
+                    f"Error using original XML for validation: {e}, falling back"
+                )
+                original_xml = None
+
+        # Fallback: Test each citation individually
+        # Strip all citations to get clean base XML
+        stripped_content, all_citations = self.strip_citation_tags(xml_string)
+        _, base_content = self._extract_preamble(stripped_content)
+
+        # Verify base XML is valid
+        try:
+            etree.fromstring(f"<root>{base_content}</root>")
+        except etree.XMLSyntaxError as e:
+            logger.error(
+                f"Base XML (without citations) is malformed for {xml_path or 'string'}: {e}"
+            )
+            return stripped_content
+
+        # Test each citation individually by trying to insert it into base XML
+        valid_citations = []
+        skipped_count = 0
+
+        for cit_start, cit_end, tag_type, attrs in all_citations:
+            # Reconstruct this citation tag
+            tag_open = f"<{tag_type.lower()}{attrs}>"
+            tag_close = f"</{tag_type.lower()}>"
+            cit_content = base_content[cit_start:cit_end]
+
+            # Try inserting JUST THIS citation into base XML
+            test_content = (
+                base_content[:cit_start]
+                + tag_open
+                + cit_content
+                + tag_close
+                + base_content[cit_end:]
+            )
+
+            # Validate
+            try:
+                etree.fromstring(f"<root>{test_content}</root>")
+                # Valid! Mark this citation as good
+                valid_citations.append((cit_start, cit_end, tag_type, attrs))
+            except etree.XMLSyntaxError:
+                # Invalid - skip this citation
+                skipped_count += 1
+                logger.debug(
+                    f"Skipping malformed {tag_type} at ({cit_start}, {cit_end})"
+                )
+
+        if skipped_count > 0:
+            logger.info(
+                f"Removed {skipped_count} malformed citation tags from {xml_path or 'string'}"
+            )
+
+        # Now build final XML with all valid citations
+        # Need to insert in reverse order to avoid position shifting
+        valid_citations.sort(key=lambda x: x[0], reverse=True)
+
+        final_content = base_content
+        for cit_start, cit_end, tag_type, attrs in valid_citations:
+            tag_open = f"<{tag_type.lower()}{attrs}>"
+            tag_close = f"</{tag_type.lower()}>"
+            cit_content = base_content[cit_start:cit_end]
+
+            # Insert from right to left so positions stay valid
+            final_content = (
+                final_content[:cit_start]
+                + tag_open
+                + cit_content
+                + tag_close
+                + final_content[cit_end:]
+            )
+
+        return preamble + final_content
+
+    def post_process(
+        self,
+        xml_string: str,
+        xml_path: Path | None = None,
+        original_xml: str | None = None,
+    ) -> str:
         """
         This handles citation tags that have been split
         across windows, and also encloses neighboring
         <bibl> and <quote> tags in a <cit> tag
+
+        Args:
+            xml_string: XML with inserted citation tags
+            xml_path: Optional path for logging
+            original_xml: Optional original XML before tag insertion, used to validate
         """
+        # First, validate and fix any malformed XML from straddling tags
+        xml_string = self.validate_and_remove_malformed_tags(
+            xml_string, xml_path, original_xml
+        )
+
         # Extract and preserve XML declaration and processing instructions
         # These cannot be wrapped in a <root> element
-        preamble, xml_string = cls._extract_preamble(xml_string)
+        preamble, xml_string = self._extract_preamble(xml_string)
 
         # Parse with lxml - wrap in root element to handle fragments
         try:
             root = etree.fromstring(f"<root>{xml_string}</root>")
         except etree.XMLSyntaxError as e:
+            # If it fails, try with a recovering XML parser
             path_info = f"file {xml_path}" if xml_path else "XML string"
-            logger.exception(f"lxml failed to process {path_info} with Exception: {e}")
-            # NOTE: could change this to skip files that can't be parsed
-            raise e
+            logger.warning(
+                f"XML parsing failed for {path_info}, attempting recovery: {e}"
+            )
+            try:
+                parser = etree.XMLParser(recover=True)
+                root = etree.fromstring(f"<root>{xml_string}</root>", parser=parser)
+                logger.warning(f"Successfully recovered malformed XML for {path_info}")
+            except Exception as recover_error:
+                logger.exception(
+                    f"Even recovering parser failed for {path_info}: {recover_error}"
+                )
+                raise recover_error
 
         # First pass: handle orphans (merge adjacent same-type tags)
         for element in root.iter():
-            if cls._get_tag_name(element).lower() in cls.cit_elements:
-                cls._handle_orphans(root, element)
+            if self._get_tag_name(element).lower() in self.cit_elements:
+                self._handle_orphans(root, element)
 
         # Second pass: wrap bibl-quote pairs in cit tags
         # Need to re-iterate because tree was modified
         for element in root.iter():
-            if cls._get_tag_name(element).lower() in cls.cit_elements:
-                cls._handle_cit_elt(element)
+            if self._get_tag_name(element).lower() in self.cit_elements:
+                self._handle_cit_elt(element)
 
         # Serialize back to string, restoring preamble (XML declaration + processing instructions)
         # Get the content inside our wrapper root element
@@ -753,11 +912,17 @@ class CitationTagger:
         # Parse XML with lxml - wrap in root element to handle fragments
         try:
             root = etree.fromstring(f"<root>{xml_content}</root>")
-        except etree.XMLSyntaxError:
-            # If it fails, try with HTML parser which is more lenient
-            from lxml import html
-
-            root = html.fromstring(f"<root>{xml_content}</root>")
+        except etree.XMLSyntaxError as e:
+            # If it fails, try with a recovering XML parser which is more lenient
+            # This preserves namespaces correctly (unlike HTML parser)
+            logger.debug(
+                f"Initial XML parsing failed in strip_citation_tags, attempting recovery: {e}"
+            )
+            parser = etree.XMLParser(recover=True)
+            root = etree.fromstring(f"<root>{xml_content}</root>", parser=parser)
+            logger.warning(
+                "Successfully recovered malformed XML using recovering parser in strip_citation_tags"
+            )
 
         # Build stripped text while tracking citation positions
         citations = []

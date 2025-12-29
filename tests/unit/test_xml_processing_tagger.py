@@ -236,71 +236,82 @@ class TestStripCitationTags:
 class TestWrapCitationsInCit:
     """Test CitationTagger.post_process method."""
 
-    def test_bibl_quote_with_space(self):
+    @pytest.fixture
+    def tagger(self, mocker):
+        """Create a CitationTagger instance for testing.
+
+        Mocks InferenceModel to avoid loading an actual model.
+        """
+        # Mock InferenceModel to avoid loading actual model
+        mocker.patch("perscit_model.xml_processing.tagger.InferenceModel")
+        tagger = CitationTagger(model_path="dummy_path")
+        return tagger
+
+    def test_bibl_quote_with_space(self, tagger):
         """Test wrapping bibl followed by quote with space between."""
         xml = "See <bibl>Ref</bibl> <quote>Text</quote>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         assert result == "See <cit><bibl>Ref</bibl> <quote>Text</quote></cit>."
 
-    def test_quote_bibl_with_space(self):
+    def test_quote_bibl_with_space(self, tagger):
         """Test wrapping quote followed by bibl with space between."""
         xml = "See <quote>Text</quote> <bibl>Ref</bibl>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         assert result == "See <cit><quote>Text</quote> <bibl>Ref</bibl></cit>."
 
-    def test_adjacent_no_space(self):
+    def test_adjacent_no_space(self, tagger):
         """Test wrapping adjacent tags with no space."""
         xml = "See <bibl>Ref</bibl><quote>Text</quote>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         assert result == "See <cit><bibl>Ref</bibl><quote>Text</quote></cit>."
 
-    def test_non_whitespace_between_not_wrapped(self):
+    def test_non_whitespace_between_not_wrapped(self, tagger):
         """Test that tags with non-whitespace text between are NOT wrapped."""
         xml = "See <bibl>Ref</bibl> text <quote>Text</quote>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         # Should remain unchanged
         assert result == xml
 
-    def test_already_wrapped_not_double_wrapped(self):
+    def test_already_wrapped_not_double_wrapped(self, tagger):
         """Test that already wrapped citations are NOT double-wrapped."""
         xml = "See <cit><bibl>Ref</bibl><quote>Text</quote></cit>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         # Should remain unchanged
         assert result == xml
 
-    def test_same_type_adjacent_are_merged(self):
+    def test_same_type_adjacent_are_merged(self, tagger):
         """Test that two bibls or two quotes adjacent ARE merged (orphan handling)."""
         xml1 = "See <bibl>Ref1</bibl><bibl>Ref2</bibl>."
-        result1 = CitationTagger.post_process(xml1)
+        result1 = tagger.post_process(xml1)
         assert result1 == "See <bibl>Ref1Ref2</bibl>."
 
         xml2 = "See <quote>Q1</quote><quote>Q2</quote>."
-        result2 = CitationTagger.post_process(xml2)
+        result2 = tagger.post_process(xml2)
         assert result2 == "See <quote>Q1Q2</quote>."
 
-    def test_multiple_pairs(self):
+    def test_multiple_pairs(self, tagger):
         """Test wrapping multiple bibl-quote pairs."""
         xml = "See <bibl>R1</bibl><quote>Q1</quote> and <quote>Q2</quote> <bibl>R2</bibl>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         assert result == "See <cit><bibl>R1</bibl><quote>Q1</quote></cit> and <cit><quote>Q2</quote> <bibl>R2</bibl></cit>."
 
-    def test_newline_between_tags(self):
+    def test_newline_between_tags(self, tagger):
         """Test wrapping tags with newline between them."""
         xml = "See <bibl>Ref</bibl>\n<quote>Text</quote>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         assert result == "See <cit><bibl>Ref</bibl>\n<quote>Text</quote></cit>."
 
-    def test_multiple_spaces_between_tags(self):
+    def test_multiple_spaces_between_tags(self, tagger):
         """Test wrapping tags with multiple spaces between them."""
         xml = "See <bibl>Ref</bibl>    <quote>Text</quote>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         # BeautifulSoup normalizes multiple spaces to single space
         assert "<cit>" in result
@@ -308,67 +319,67 @@ class TestWrapCitationsInCit:
         assert "<quote>Text</quote>" in result
         assert "</cit>" in result
 
-    def test_tab_between_tags(self):
+    def test_tab_between_tags(self, tagger):
         """Test wrapping tags with tab between them."""
         xml = "See <bibl>Ref</bibl>\t<quote>Text</quote>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         assert "<cit><bibl>Ref</bibl>" in result
         assert "<quote>Text</quote></cit>" in result
 
-    def test_mixed_whitespace_between_tags(self):
+    def test_mixed_whitespace_between_tags(self, tagger):
         """Test wrapping tags with mixed whitespace (spaces, tabs, newlines)."""
         xml = "See <bibl>Ref</bibl> \n\t  <quote>Text</quote>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         assert "<cit><bibl>Ref</bibl>" in result
         assert "<quote>Text</quote></cit>" in result
 
-    def test_no_citations(self):
+    def test_no_citations(self, tagger):
         """Test text with no citation tags remains unchanged."""
         xml = "Just plain text."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         assert result == xml
 
-    def test_single_bibl_only(self):
+    def test_single_bibl_only(self, tagger):
         """Test single bibl without quote is not wrapped."""
         xml = "See <bibl>Ref</bibl>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         assert result == xml
 
-    def test_single_quote_only(self):
+    def test_single_quote_only(self, tagger):
         """Test single quote without bibl is not wrapped."""
         xml = "See <quote>Text</quote>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         assert result == xml
 
-    def test_with_attributes_preserved(self):
+    def test_with_attributes_preserved(self, tagger):
         """Test that citation tag attributes are preserved."""
         xml = 'See <bibl n="1">Ref</bibl> <quote type="paraphrase">Text</quote>.'
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         assert '<bibl n="1">Ref</bibl>' in result
         assert '<quote type="paraphrase">Text</quote>' in result
         assert '<cit>' in result
         assert '</cit>' in result
 
-    def test_nested_existing_cit_with_other_tags(self):
+    def test_nested_existing_cit_with_other_tags(self, tagger):
         """Test that nested tags inside cit are handled correctly."""
         xml = "See <cit><bibl>Hdt. <foreign>8.82</foreign></bibl><quote>text</quote></cit>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         # Should not double-wrap
         assert result.count("<cit>") == 1
         assert result.count("</cit>") == 1
         assert "<foreign>8.82</foreign>" in result
 
-    def test_bibl_quote_separated_by_other_tag(self):
+    def test_bibl_quote_separated_by_other_tag(self, tagger):
         """Test bibl and quote separated by another tag are NOT wrapped."""
         xml = "See <bibl>Ref</bibl><foreign>text</foreign><quote>Text</quote>."
-        result = CitationTagger.post_process(xml)
+        result = tagger.post_process(xml)
 
         # Should not wrap because there's a tag between them
         assert "<cit>" not in result

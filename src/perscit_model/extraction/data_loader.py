@@ -98,7 +98,7 @@ class ExtractionDataLoader(SharedDataLoader):
         # Remove attributes from citation tags using regex
         # Match opening tags with attributes: <bibl ...> or <quote ...> or <cit ...>
         # Replace with just the tag name: <bibl> or <quote> or <cit>
-        cleaned_xml = re.sub(r'<(bibl|quote|cit)\s+[^>]*>', r'<\1>', xml_context)
+        cleaned_xml = re.sub(r"<(bibl|quote|cit)\s+[^>]*>", r"<\1>", xml_context)
 
         # Replace citation tags with special tokens (no extra spaces since they're registered as special tokens)
         for tag, token in zip(SPECIAL_TAGS, SPECIAL_TOKENS):
@@ -270,20 +270,27 @@ def create_extraction_dataset(
 
     def process_entries(entries: dict[str, list]) -> dict[str, list]:
         # Extract data from BatchEncoding (shape is [1, seq_len])
+        # This is a bit hacky, but is meant to deal with different data format
+        if "xml_context" in entries.keys():
+            xml_key = "xml_context"
+        elif "window_text" in entries.keys():
+            xml_key = "window_text"
+        else:
+            raise KeyError
         extraction_entries = [
             {
-                "xml_context": loader.tokenize_text(
+                "xml_string": loader.tokenize_text(
                     ExtractionDataLoader.parse_xml_to_bio(entry_content)
                 ),
                 "filename": entry_filename,
             }
             for entry_content, entry_filename in zip(
-                entries["xml_context"], entries["filename"]
+                entries[xml_key], entries["filename"]
             )
         ]
 
         input_ids_with_special = [
-            entry["xml_context"].input_ids[0].tolist() for entry in extraction_entries
+            entry["xml_string"].input_ids[0].tolist() for entry in extraction_entries
         ]
 
         # Generate BIO labels from special token positions

@@ -1,7 +1,5 @@
 # Data files (large JSONL files)
-cit_data/resolved.jsonl
-cit_data/unresolved.jsonl
-cit_data/document_mappings.json
+cit_data/*
 
 # Python
 __pycache__/
@@ -43,6 +41,8 @@ wandb/
 *.bin
 
 # keep directory structure in outputs/
+!cit_data/.gitkeep
+!cit_data/**/.gitkeep
 !outputs/.gitkeep
 !outputs/**/.gitkeep
 

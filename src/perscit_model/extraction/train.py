@@ -4,6 +4,7 @@ import json
 import logging
 import random
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 
@@ -210,6 +211,8 @@ def split_data(
             f"Could not find split within {tolerance:.1%} tolerance after {max_attempts} attempts. "
             f"Using best split found (max deviation: {best_deviation:.1%})"
         )
+        if best_split is None:
+            raise ValueError
         train_files, val_files, test_files, train_count, val_count, test_count = (
             best_split
         )
@@ -469,9 +472,9 @@ def train(
     )
 
     # Save final model to timestamped directory
-    from datetime import datetime
-
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if training_args.output_dir is None:
+        raise ValueError
     final_model_dir = Path(training_args.output_dir) / f"final-model-{timestamp}"
     logger.info(f"Saving final model to {final_model_dir}")
     trainer.save_model(str(final_model_dir))
@@ -493,6 +496,7 @@ def train(
         shutil.copy(state_file, final_model_dir / "trainer_state.json")
 
     # Eval on validation set
+    val_metrics = None
     if val_path:
         logger.info("Evaluating on validation set...")
         val_metrics = trainer.evaluate()
@@ -502,6 +506,7 @@ def train(
             json.dump(val_metrics, f, indent=4)
 
     # Eval on test set
+    test_metrics = None
     if test_path:
         logger.info("Evaluating on test set ...")
         test_metrics = trainer.evaluate(datasets["test"], metric_key_prefix="test")  # type: ignore[arg-type]
@@ -512,9 +517,9 @@ def train(
 
     # Save all results together
     all_results = {**metrics}
-    if val_path:
+    if val_path and val_metrics is not None:
         all_results.update(val_metrics)
-    if test_path:
+    if test_path and test_metrics is not None:
         all_results.update(test_metrics)
     with open(final_model_dir / "all_results.json", "w") as f:
         json.dump(all_results, f, indent=4)
@@ -526,6 +531,8 @@ def train(
 def train_pipeline(
     data_dir: Path | str | None = None,
     config_path: Path | str = DEFAULT_CONFIG,
+    src_path: Path | str = Path(__file__).parent.parent.parent.parent
+    / "cit_data/xml_files/window_data.jsonl",
     **kwargs,
 ) -> Trainer:
     """
@@ -537,10 +544,13 @@ def train_pipeline(
         data_dir: Directory containing train.jsonl, val.jsonl, test.jsonl
             If None, looks in model_data/ directory in project root
         config_path: Path to training config YAML
+        src_path: Defaults to Path to file with 512-token windows from XML files in jsonl format, processed with shared.xml_utils.CitXMLHandler
         **kwargs: additional arguments passed to train(), most relevant is probably resume_from_checkpoint, which expect path to weight for checkpoint
 
     Returns:
         Trained Trainer object
+
+    Note: src_path needs to be provided as an explicit argument for curriculum learning.
     """
 
     if data_dir is None:
@@ -552,9 +562,7 @@ def train_pipeline(
 
     # Split data (creates train/val/test files)
     train_path, val_path, test_path = split_data(
-        input_file=Path(__file__).parent.parent.parent.parent
-        / "cit_data"
-        / "resolved.jsonl",
+        src_path,
         output_dir=data_dir,
         config_path=config_path,
     )
