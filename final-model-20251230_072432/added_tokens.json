@@ -1,0 +1,9 @@
+{
+  "[BIBL_END]": 128002,
+  "[BIBL_START]": 128001,
+  "[CIT_END]": 128006,
+  "[CIT_START]": 128005,
+  "[MASK]": 128000,
+  "[QUOTE_END]": 128004,
+  "[QUOTE_START]": 128003
+}
