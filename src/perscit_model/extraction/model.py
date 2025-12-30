@@ -22,6 +22,7 @@ from perscit_model.shared.training_utils import TrainingConfig
 def create_model(
     tokenizer: PreTrainedTokenizerBase,
     config_path: Path | str | None = None,
+    pretrained_model_path: Path | str | None = None,
 ) -> PreTrainedModel:
     """Create a token classification model for citation extraction from Perseus XML documents.
 
@@ -29,6 +30,9 @@ def create_model(
         ARGS:
             tokenizer: Tokenizer with special tokens (so embeddings can be resized)
             config_path: Path to YAML config file (default None will load DEFAULT_CONFIG)
+            pretrained_model_path: Optional path to a pretrained model checkpoint to initialize from.
+                If provided, loads weights from this checkpoint instead of the base model.
+                Useful for curriculum learning (load Phase 1 weights but start Phase 2 training from epoch 0).
 
         Returns:
             Token classification model with correct label mappings of subtype AutoModelForTokenClassification.
@@ -39,8 +43,16 @@ def create_model(
         config_path = DEFAULT_CONFIG
     config = TrainingConfig.from_yaml(config_path)
 
+    # Determine model path to load from
+    if pretrained_model_path is not None:
+        # Load from pretrained checkpoint
+        model_path = str(pretrained_model_path)
+    else:
+        # Load from base model
+        model_path = config.model_name
+
     model = AutoModelForTokenClassification.from_pretrained(
-        config.model_name,
+        model_path,
         num_labels=len(BIO_LABELS),
         id2label=ID2LABEL,
         label2id=LABEL2ID,
@@ -49,16 +61,22 @@ def create_model(
 
     # Resize embeddings to include special tokens
     # Use len(tokenizer) instead of vocab_size since vocab_size doesn't include added tokens
-    model.resize_token_embeddings(len(tokenizer))
+    # Do this only if loading from base model
+    if pretrained_model_path is not None:
+        model.resize_token_embeddings(len(tokenizer))
 
-    # Set the new embeddings to mean of existing embeddings
-    # This is more to stabilize loss early on in training
-    # than to improve final performance
+        # Set the new embeddings to mean of existing embeddings
+        # This is more to stabilize loss early on in training
+        # than to improve final performance
 
-    with torch.no_grad():
-        old_embeddings = model.get_input_embeddings().weight[: -len(SPECIAL_TOKENS), :]
-        mean_embedding = old_embeddings.mean(dim=0)
-        model.get_input_embeddings().weight[-len(SPECIAL_TOKENS) :, :] = mean_embedding
+        with torch.no_grad():
+            old_embeddings = model.get_input_embeddings().weight[
+                : -len(SPECIAL_TOKENS), :
+            ]
+            mean_embedding = old_embeddings.mean(dim=0)
+            model.get_input_embeddings().weight[-len(SPECIAL_TOKENS) :, :] = (
+                mean_embedding
+            )
 
     return model
 

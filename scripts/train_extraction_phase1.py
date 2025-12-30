@@ -34,9 +34,10 @@ console_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
-logging.info("Starting training for XML extraction...")
+if __name__ == "__main__":
+    logging.info("Starting Phase 1 training (snippets)...")
 
-train_pipeline(data_dir=PHASE_1_PARTITION_DIR, src_path=PHASE_1_SRC_PATH)
+    train_pipeline(data_dir=PHASE_1_PARTITION_DIR, src_path=PHASE_1_SRC_PATH)
 
 # train_pipeline should run as intendended without arguments;
 # but see below for overriding defaults, esp. as regards hyperparameters

@@ -39,13 +39,14 @@ console_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
-logging.info("Starting training for XML extraction...")
+if __name__ == '__main__':
+    logging.info("Starting Phase 2 training (curriculum learning on full documents)...")
 
-train_pipeline(
-    data_dir=PHASE_2_PARTITION_DIR,
-    src_path=PHASE_2_SRC_PATH,
-    resume_from_checkpoint=PHASE_1_MODEL,
-)
+    train_pipeline(
+        data_dir=PHASE_2_PARTITION_DIR,
+        src_path=PHASE_2_SRC_PATH,
+        pretrained_model_path=PHASE_1_MODEL,
+    )
 
 # train_pipeline should run as intendended without arguments;
 # but see below for overriding defaults, esp. as regards hyperparameters

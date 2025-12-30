@@ -357,6 +357,7 @@ def train(
     config_path: Path | str = DEFAULT_CONFIG,
     resume_from_checkpoint: Path | str | None = None,
     auto_resume: bool = False,
+    pretrained_model_path: Path | str | None = None,
     learning_rate: float | None = None,
     num_epochs: int | None = None,
     batch_size: int | None = None,
@@ -374,8 +375,9 @@ def train(
         test_path: path to testing JSONL file, if applicable
         output_dir: directory to save model checkpoints (reads from config if None)
         config_path: path to YAML config file (default: configs/extraction/baseline.yaml)
-        resume_from_checkpoint: optional checkpoint to resume from
+        resume_from_checkpoint: optional checkpoint to resume from (includes optimizer state, epoch counter, NOT for curriculum learning)
         auto_resume: automatically resume from last checkpoint, defaults to false
+        pretrained_model_path: optional pretrained model to initialize weights from (use this for curriculum learning)
         learning_rate: learning rate for AdamW optimizer
         num_epochs: number of training epoch
         batch_size: training batch size per device
@@ -400,7 +402,11 @@ def train(
 
     logger.info("Creating model...")
     loader = ExtractionDataLoader(config_path=config_path)
-    model = create_model(loader.tokenizer, config_path=config_path)
+    model = create_model(
+        loader.tokenizer,
+        config_path=config_path,
+        pretrained_model_path=pretrained_model_path,
+    )
 
     logger.info(f"Model: {model.config.model_type}")
     logger.info(f"Vocabulary size: {loader.tokenizer.vocab_size}")
