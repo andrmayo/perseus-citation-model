@@ -10,12 +10,17 @@ This script does two things:
         target_dir (optional): directory to copy XML files that pass threshold test to
 """
 
+import json
 import math
 import sys
-import yaml
+from io import BytesIO
 from pathlib import Path
 from xml import sax
 
+import yaml
+from lxml import etree
+
+from perscit_model.shared.data_loader import SharedDataLoader
 from perscit_model.shared.xml_utils import CitXMLHandler
 
 INCLUSION_THRESHOLD = 100
@@ -27,8 +32,7 @@ if __name__ == "__main__":
     try:
         path = Path(sys.argv[1])
     except IndexError:
-        print("Please provide path to dir with XML files")
-        raise IndexError
+        raise IndexError("Please provide path to dir with XML files")
 
     if not path.exists():
         print("Please provide path to dir with XML files")
@@ -47,34 +51,33 @@ if __name__ == "__main__":
     output_dir.mkdir(exist_ok=True)
     output_path = output_dir / "window_data.jsonl"
 
-    with open(output_path, "a", encoding="utf-8") as f:
-        saxHandler = CitXMLHandler(f, WINDOW_SIZE)
-        saxParser = sax.make_parser()
-        saxParser.setContentHandler(saxHandler)
+    saxHandler = CitXMLHandler()
+    saxParser = sax.make_parser()
+    saxParser.setContentHandler(saxHandler)
 
-        files_for_training = []
+    files_for_training: list[Path] = []
 
-        # only include mappings for included files
-        file_to_idx = {}
+    # only include mappings for included files
+    file_to_idx = {}
 
-        for i, xml_file in enumerate(path.glob("*.xml")):
-            saxHandler.filename = str(xml_file)
-            try:
-                saxParser.parse(xml_file)
-            except Exception as e:
-                print(f"failed to parse {xml_file}: {e}")
-                continue
-            cit_elt_count = 0
-            for k, v in saxHandler.counts.items():
-                if k in ("cit", "bibl", "quote"):
-                    cit_elt_count += v
-            print(f"file {xml_file} has {cit_elt_count} cit, bibl, or quote elements")
-            if cit_elt_count >= INCLUSION_THRESHOLD:
-                file_to_idx[str(xml_file)] = i
-                print(f"including file {xml_file}")
-                files_for_training.append(xml_file)
-            else:
-                print(f"excluding file {xml_file}")
+    for i, xml_file in enumerate(path.glob("*.xml")):
+        saxHandler.filename = str(xml_file)
+        try:
+            saxParser.parse(xml_file)
+        except Exception as e:
+            print(f"failed to parse {xml_file}: {e}")
+            continue
+        cit_elt_count = 0
+        for k, v in saxHandler.counts.items():
+            if k in ("cit", "bibl", "quote"):
+                cit_elt_count += v
+        print(f"file {xml_file} has {cit_elt_count} cit, bibl, or quote elements")
+        if cit_elt_count >= INCLUSION_THRESHOLD:
+            file_to_idx[str(xml_file)] = i
+            print(f"including file {xml_file}")
+            files_for_training.append(xml_file)
+        else:
+            print(f"excluding file {xml_file}")
 
     cit_prop_avg = 0
     bibl_prop_avg = 0
@@ -217,4 +220,34 @@ if __name__ == "__main__":
 
     stats_output_path = output_dir / "xml_cit_stats.yaml"
     with open(stats_output_path, "w") as f:
-        yaml.dump(stats, f)
+        yaml.dump(stats, f, sort_keys=False)
+
+    # Now, iterate through files_for_training
+    data_loader = SharedDataLoader()
+    with open(output_path, "w") as f:
+        for file in files_for_training:
+            xml_bytes = file.read_bytes()
+            tree = etree.parse(BytesIO(xml_bytes))
+            encoding = tree.docinfo.encoding
+            del tree
+            xml_text = xml_bytes.decode(
+                encoding=encoding if isinstance(encoding, str) else "utf-8"
+            )
+            del xml_bytes
+            tokens = data_loader.tokenizer(xml_text)["input_ids"]
+            assert isinstance(tokens, list) and (
+                len(tokens) == 0 or isinstance(tokens[0], int)
+            )
+            for window in (
+                tokens[i : i + WINDOW_SIZE] for i in range(0, len(tokens), WINDOW_SIZE)
+            ):
+                json.dump(
+                    {
+                        "window_text": data_loader.tokenizer.decode(
+                            window, clean_up_tokenization_spaces=False
+                        ),
+                        "filename": str(file.name),
+                    },
+                    f,
+                )
+                f.write("\n")

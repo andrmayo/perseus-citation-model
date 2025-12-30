@@ -1,14 +1,10 @@
-import json
-from typing import TextIO, cast, Iterable
+from typing import cast, Iterable
 from lxml import etree
 from xml import sax
 
-from perscit_model.shared.data_loader import SharedDataLoader
 
-
-# NOTE: Slight risk of circular imports if SharedDataLoader ever uses a util in this module
 class CitXMLHandler(sax.ContentHandler):
-    def __init__(self, out: TextIO, chunk_size: int) -> None:
+    def __init__(self) -> None:
         self.total_counts = {"cit": 0, "bibl": 0, "quote": 0}
         self.counts = {}
         # Maps doc idx to its counts
@@ -16,19 +12,17 @@ class CitXMLHandler(sax.ContentHandler):
         self.total = 0
         self.doc_idx = -1  # so this can be incremented in startDocument
         self.total_char_count = 0
-        self.out = out
-        self.chunk_size = chunk_size
-        self._buffer: list[int] = []
-        self.data_loader = SharedDataLoader()
         self.filename: str | None = None
+        self.doc_idx_to_filename = {}
 
     def startDocument(self) -> None:
         if self.filename is None:
-            print("Ideally, set self.filename before parsing document")
+            print("Warning: ideally, set self.filename before parsing document")
         self.counts = {"cit": 0, "bibl": 0, "quote": 0}
         self.doc_idx += 1
         # So we can easily see if the idx-th doc failed to parse
         self.doc_counts[self.doc_idx] = None
+        self.doc_idx_to_filename[self.doc_idx] = self.filename
         self.char_count = 0
 
     def startElement(self, name, attrs):
@@ -42,27 +36,6 @@ class CitXMLHandler(sax.ContentHandler):
 
         self.char_count += len(content)
         # without a return_tensors argument, this should return a list[int]
-        new_input_ids = cast(
-            list[int], self.data_loader.tokenizer(content)["input_ids"]
-        )
-        assert isinstance(new_input_ids, list) and (
-            len(new_input_ids) == 0 or isinstance(new_input_ids[0], int)
-        ), f"new_input_ids has type {type(new_input_ids)}"
-        self._buffer.extend(new_input_ids)
-
-        while len(self._buffer) >= self.chunk_size:
-            chunk = self._buffer[: self.chunk_size]
-            json.dump(
-                {
-                    "window_text": self.data_loader.tokenizer.decode(
-                        chunk, clean_up_tokenization_spaces=False
-                    ),
-                    "filename": self.filename,
-                },
-                self.out,
-            )
-            self.out.write("\n")
-            self._buffer = self._buffer[self.chunk_size :]
 
     def endDocument(self) -> None:
         print("Document counts -- ", end="")
@@ -74,20 +47,6 @@ class CitXMLHandler(sax.ContentHandler):
             self.doc_counts[self.doc_idx][k] = v
             print(f"{k}: {v} -- ", end="")
         self.doc_counts[self.doc_idx]["char_count"] = self.char_count
-
-        # handle leftover buffer
-        if self._buffer:
-            json.dump(
-                {
-                    "window_text": self.data_loader.tokenizer.decode(
-                        self._buffer, clean_up_tokenization_spaces=False
-                    ),
-                    "filename": self.filename,
-                },
-                self.out,
-            )
-            self.out.write("\n")
-            self._buffer.clear()
 
 
 def get_opening_tag(elem: etree._Element) -> str:
