@@ -239,7 +239,8 @@ if __name__ == "__main__":
                 len(tokens) == 0 or isinstance(tokens[0], int)
             )
             for window in (
-                tokens[i : i + WINDOW_SIZE] for i in range(0, len(tokens), WINDOW_SIZE)
+                tokens[i : i + WINDOW_SIZE]
+                for i in range(0, len(tokens), WINDOW_SIZE // 2)
             ):
                 json.dump(
                     {
