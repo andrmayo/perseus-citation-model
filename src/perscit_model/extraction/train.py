@@ -544,7 +544,7 @@ def train_pipeline(
         data_dir: Directory containing train.jsonl, val.jsonl, test.jsonl
             If None, looks in model_data/ directory in project root
         config_path: Path to training config YAML
-        src_path: Defaults to Path to file with 512-token windows from XML files in jsonl format, processed with shared.xml_utils.CitXMLHandler
+        src_path: Defaults to Path to file with 512-token windows from XML files in jsonl format
         **kwargs: additional arguments passed to train(), most relevant is probably resume_from_checkpoint, which expect path to weight for checkpoint
 
     Returns:

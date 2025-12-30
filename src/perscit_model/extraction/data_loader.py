@@ -49,8 +49,16 @@ class ExtractionDataLoader(SharedDataLoader):
             Dicts with xml_context and filename
         """
         for item in self.load_jsonl(filepath):
+            # Handle both xml_context (snippets) and window_text (full doc windows)
+            if "xml_context" in item:
+                content = item["xml_context"]
+            elif "window_text" in item:
+                content = item["window_text"]
+            else:
+                raise KeyError(f"Expected 'xml_context' or 'window_text' field in data, got: {list(item.keys())}")
+
             yield {
-                "xml_context": item["xml_context"],
+                "xml_context": content,
                 "filename": item.get("filename", ""),
             }
 

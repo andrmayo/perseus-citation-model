@@ -6,6 +6,9 @@ from pathlib import Path
 
 from perscit_model.extraction.train import train_pipeline
 
+PHASE_1_PARTITION_DIR = Path(__file__).parent.parent / "model_data/extraction/phase_1"
+PHASE_1_SRC_PATH = Path(__file__).parent.parent / "cit_data/snippets/resolved.jsonl"
+
 log_dir = Path(__file__).parent.parent / "outputs" / "logs" / "extraction"
 log_dir.mkdir(parents=True, exist_ok=True)
 log_path = log_dir / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
@@ -33,7 +36,7 @@ logger.addHandler(console_handler)
 
 logging.info("Starting training for XML extraction...")
 
-train_pipeline()
+train_pipeline(data_dir=PHASE_1_PARTITION_DIR, src_path=PHASE_1_SRC_PATH)
 
 # train_pipeline should run as intendended without arguments;
 # but see below for overriding defaults, esp. as regards hyperparameters
@@ -92,9 +95,10 @@ train_pipeline()
 #    This function handles data discovery, logging setup, and calls train().
 #
 #    Args:
-#        data_dir: Directory containing train.jsonl, val.jsonl, test.jsonl
+#        data_dir: Directory that contains (or will contain) train.jsonl, val.jsonl, test.jsonl
 #            If None, looks in model_data/ directory in project root
 #        config_path: Path to training config YAML
+#        src_path: Defaults to Path to file with 512-token windows from XML files in jsonl format
 #        **kwargs: additional arguments passed to train(), most relevant is probably resume_from_checkpoint, which expect path to weight for checkpoint
 #
 #    Returns:
