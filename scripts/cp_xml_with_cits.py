@@ -224,10 +224,12 @@ if __name__ == "__main__":
 
     # Now, iterate through files_for_training
     data_loader = SharedDataLoader()
+    # Parser that doesn't try to load external DTDs or network entities
+    parser = etree.XMLParser(load_dtd=False, no_network=True, recover=True)
     with open(output_path, "w") as f:
         for file in files_for_training:
             xml_bytes = file.read_bytes()
-            tree = etree.parse(BytesIO(xml_bytes))
+            tree = etree.parse(BytesIO(xml_bytes), parser)
             encoding = tree.docinfo.encoding
             del tree
             xml_text = xml_bytes.decode(
