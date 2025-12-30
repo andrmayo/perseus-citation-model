@@ -137,9 +137,9 @@ if __name__ == "__main__":
 
         char_weight = doc_counts["char_count"] / n_chars
 
-        cit_prop_w += doc_counts["cit"] * char_weight
-        bibl_prop_w += doc_counts["bibl"] * char_weight
-        quote_prop_w += doc_counts["quote"] * char_weight
+        cit_prop_w += cit_proportion * char_weight
+        bibl_prop_w += bibl_proportion * char_weight
+        quote_prop_w += quote_proportion * char_weight
 
     cit_prop_avg /= n_included
     bibl_prop_avg /= n_included
@@ -215,5 +215,6 @@ if __name__ == "__main__":
         "char_weighted_quote_tag_proportion": quote_prop_w,
     }
 
-    with open(output_dir, "w") as f:
+    stats_output_path = output_dir / "xml_cit_stats.yaml"
+    with open(stats_output_path, "w") as f:
         yaml.dump(stats, f)

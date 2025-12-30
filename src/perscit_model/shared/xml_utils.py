@@ -9,7 +9,7 @@ from perscit_model.shared.data_loader import SharedDataLoader
 # NOTE: Slight risk of circular imports if SharedDataLoader ever uses a util in this module
 class CitXMLHandler(sax.ContentHandler):
     def __init__(self, out: TextIO, chunk_size: int) -> None:
-        self.total_counts = {}
+        self.total_counts = {"cit": 0, "bibl": 0, "quote": 0}
         self.counts = {}
         # Maps doc idx to its counts
         self.doc_counts = {}
@@ -73,7 +73,7 @@ class CitXMLHandler(sax.ContentHandler):
             self.total += v
             self.doc_counts[self.doc_idx][k] = v
             print(f"{k}: {v} -- ", end="")
-        self.doc_counts["char_count"] = self.char_count
+        self.doc_counts[self.doc_idx]["char_count"] = self.char_count
 
         # handle leftover buffer
         if self._buffer:
