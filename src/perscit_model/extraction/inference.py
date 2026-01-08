@@ -221,7 +221,6 @@ class InferenceModel:
         xml: str | list[str],
         encoding: transformers.BatchEncoding,
         labels: list[str] | list[list[str]],
-        existing_citations: None | list[tuple[int, int, str, str]] = None,
     ) -> list[str] | str:
         """
         Convert input text and predicted BIO labels to XML-tagged text.
@@ -231,11 +230,6 @@ class InferenceModel:
             xml: (list of) string representation(s) of xml
             encoding: BatchEncoding object with offset_mapping and token ids
             labels: list of labels from prediction, or list of lists for batch
-            existing_citations: irrelevant if None, otherwise list of (start, stop, label)
-                for citations already known from original XML that need to be interwoven
-                with predictions. Or can take a list of tuples of ((start, stop, label), attrs)
-                where attrs is a string with the attributes for the corresponding citation element.
-                This could get rewritten as a more elegant polymorphism.
 
         Returns:
             A string or list of strings of texts with XML tags (<bibl>, <quote>, <cit>) inserted from prediction
@@ -261,7 +255,6 @@ class InferenceModel:
                     tokens,
                     cast(IntTensor, offset),
                     cast(list[str], labels),
-                    existing_citations,
                 )
             except Exception as e:
                 raise e
@@ -284,7 +277,6 @@ class InferenceModel:
                         tokens,
                         offset_mapping,
                         labels,
-                        repeat(existing_citations),
                     )
                 )
         except Exception as e:
@@ -297,9 +289,8 @@ class InferenceModel:
         tokens: IntTensor,
         offset_mapping: IntTensor,
         labels: list[str],
-        existing_citations: None | list[tuple[int, int, str, str]],
     ) -> str:
-        """Inserts XML tags for a single text."""
+        """Inserts XML tags for a single text based on predicted labels."""
 
         special_token_ids = {
             getattr(self.loader.tokenizer, "cls_token_id", None),
@@ -309,7 +300,7 @@ class InferenceModel:
 
         special_token_ids.discard(None)
 
-        # filter tokens
+        # Filter tokens (skip special tokens and zero-width offsets)
         token_spans = [
             (offset[0].item(), offset[1].item(), label)
             for token_id, offset, label in zip(tokens, offset_mapping, labels)
@@ -317,73 +308,11 @@ class InferenceModel:
             and offset[0].item() != offset[1].item()
         ]
 
-        # build entities according to citation labels
+        # Build entities from predicted BIO labels
         entities = []
         current_entity = None
 
-        # add in existing citations first, if provided
-        # this assumes existing_citations is already sorted
-        prior_entities = []
-        if existing_citations:
-            prior_entities = [
-                {"type": tag_type.upper(), "start": start, "end": end, "attrs": attrs}
-                for start, end, tag_type, attrs in existing_citations
-            ]
-
-        # so can we keep track whether to skip a prediction because it overlaps with existing citation
-        citation_idx = 0  # pointer into (sorted)
-        n_existing_citations = len(prior_entities)
-        skipping_predicted_entity = False
-
         for start, end, label in token_spans:
-            while (
-                citation_idx < n_existing_citations
-                and start >= prior_entities[citation_idx]["end"]
-            ):
-                citation_idx += 1
-            # Extract label type
-            label_type = label[2:] if label.startswith(("B-", "I-")) else None
-
-            should_skip = False
-
-            # check overlap or contiguity between existing citation and prediction
-            if citation_idx < n_existing_citations:
-                prior_start, prior_end, prior_type = (
-                    prior_entities[citation_idx]["start"],
-                    prior_entities[citation_idx]["end"],
-                    prior_entities[citation_idx]["type"],
-                )
-
-                overlap = start < prior_end and end > prior_start
-                if overlap:
-                    should_skip = True
-
-                # contiguity check
-                if label_type and prior_end == start and label_type == prior_type:
-                    should_skip = True
-
-            # Also check contiguity with previous citation tagged in XML already
-            if citation_idx > 0 and label_type:
-                prev_end = prior_entities[citation_idx - 1]["end"]
-                prev_type = prior_entities[citation_idx - 1]["type"]
-                if prev_end == start and label_type == prev_type:
-                    should_skip = True
-
-            if should_skip:
-                if current_entity:
-                    entities.append(current_entity)
-                    current_entity = None
-                # Mark that we're now skipping a predicted entity
-                if label.startswith("B-"):
-                    skipping_predicted_entity = True
-                continue
-
-            if skipping_predicted_entity:
-                if label == "O" or label.startswith("B-"):
-                    skipping_predicted_entity = False
-                else:
-                    continue
-
             if label == "O":
                 if current_entity:
                     entities.append(current_entity)
@@ -395,17 +324,16 @@ class InferenceModel:
                     "type": label[2:],
                     "start": start,
                     "end": end,
-                    "attrs": "",
                 }
             elif label.startswith("I-"):
                 if current_entity:
                     current_entity["end"] = end
                 else:
+                    # Start a new entity if we see I- without B- (shouldn't happen often)
                     current_entity = {
                         "type": label[2:],
                         "start": start,
                         "end": end,
-                        "attrs": "",
                     }
 
         if current_entity:
@@ -422,7 +350,7 @@ class InferenceModel:
 
         xml_mask_opening, xml_mask_closing = InferenceModel._get_tag_masks(xml)
 
-        # Adjust entity boundaries to avoid splitting existing XML entities
+        # Adjust entity boundaries to avoid splitting existing XML tags
         # Filter out entities that can't be adjusted to valid positions
         adjusted_entities = []
         for entity in entities:
@@ -436,26 +364,26 @@ class InferenceModel:
                 entity["start"], entity["end"] = adjusted_start, adjusted_end
                 adjusted_entities.append(entity)
 
-        # Merge with prior entities and sort
-        entities = adjusted_entities + prior_entities
+        entities = adjusted_entities
         entities.sort(key=lambda x: x["start"])
 
-        # build text segments
+        # Build text segments with inserted tags
         segments = []
         last_pos = 0
 
         for entity in entities:
+            # Add text before this entity
             if last_pos < entity["start"]:
                 segments.append(xml[last_pos : entity["start"]])
 
+            # Add the tagged entity
             tag = entity["type"].lower()
-            # entity["attrs"] should already include any necessary whitespace
-            attr_string = entity["attrs"]
             segments.append(
-                f"<{tag}{attr_string}>{xml[entity['start'] : entity['end']]}</{tag}>"
+                f"<{tag}>{xml[entity['start'] : entity['end']]}</{tag}>"
             )
             last_pos = entity["end"]
 
+        # Add remaining text after last entity
         if last_pos < len(xml):
             segments.append(xml[last_pos:])
 

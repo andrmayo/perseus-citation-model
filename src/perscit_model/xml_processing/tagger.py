@@ -3,20 +3,32 @@ import re
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Iterable
 
 from lxml import etree
-from lxml.etree import _Element
+from lxml.etree import _Element, XMLSyntaxError
 import torch
 import transformers
 
 
 import perscit_model.extraction.evaluate as evaluate
-from perscit_model.extraction.data_loader import ID2LABEL, ExtractionDataLoader
+from perscit_model.extraction.data_loader import (
+    ID2LABEL,
+    ExtractionDataLoader,
+    SPECIAL_TOKENS,
+)
 from perscit_model.extraction.inference import InferenceModel
-from perscit_model.shared.xml_utils import get_opening_tag, get_attrs_as_string
+from perscit_model.shared.xml_utils import get_encoding
 
 logger = logging.getLogger(__name__)
+
+SPECIAL_TOKENS_MAPPING = {}
+for spec_tok in SPECIAL_TOKENS:
+    name, type = spec_tok.split("_")
+    name, type = name[1:], type[:-1]
+    SPECIAL_TOKENS_MAPPING[spec_tok] = (
+        f"<{name.lower()}>" if type == "START" else f"</{name.lower()}>"
+    )
 
 
 class CitationTagger:
@@ -50,6 +62,7 @@ class CitationTagger:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = device
+            self.inference_model.device = device
         self._batch_size = None
 
     # The approach here is to preprocess and tokenize the whole XML file
@@ -57,14 +70,14 @@ class CitationTagger:
     def process_xml(
         self,
         xml_path: str | Path | Iterable[str] | Iterable[Path],
-        preserve_existing: bool = True,
         overwrite: bool = True,
     ):
         """
+        Process XML files to insert citation tags based on model predictions.
+
         Args:
             xml_path: path or Iterable of paths
-            preserve_existing: if True, do not overwrite existing citation tags
-            copy: if True, create a copy of all XML files with tags added rather than modifying in place
+            overwrite: if True, modify files in place; if False, create copies in processed/ subdirectory
         """
         if isinstance(xml_path, Path) and xml_path.is_dir():
             xml_path = list(xml_path.glob("*.xml"))
@@ -77,7 +90,6 @@ class CitationTagger:
                 executor.submit(
                     self.process_xml_file,
                     path if isinstance(path, Path) else Path(path),
-                    preserve_existing,
                     overwrite,
                 )
                 for path in xml_path
@@ -88,30 +100,28 @@ class CitationTagger:
                 future.result()
 
     def process_xml_file(
-        self, xml_path: Path, preserve_existing: bool = True, overwrite: bool = True
+        self,
+        xml_path: Path,
+        overwrite: bool = True,
+        remove_existing_citations: bool = False,
     ) -> None:
         """
-        Function mean to process a single XML file. Loads whole file but streams predictions.
+        Process a single XML file. Loads whole file but streams predictions.
 
         Args:
             xml_path: Path object giving path to XML file.
-            preserve_existing: if True (default), keeps any citation tags in file unaltered, if False, replaces with predictions.
+            overwrite: if True, modify file in place; if False, create copy in processed/ subdirectory
         """
-        xml_content = xml_path.read_text(encoding="utf-8")
-        # Save original XML before stripping, for validation later
-        original_xml = xml_content
+        file_encoding = get_encoding(xml_path)
+        if not file_encoding:
+            file_encoding = "utf-8"
+            logger.warning(
+                f"No encoding declaration found for {xml_path.name}, defaulting to utf-8"
+            )
+        xml_content = xml_path.read_text(encoding="encoding")
+        if remove_existing_citations:
+            xml_content = evaluate.strip_xml_tags(xml_content)
 
-        # Preprocessing: handle existing citations if preserve_existing = True, strip citation tags, and then tokenize
-
-        # citations as returned by strip_citation_tags is a bit complex:
-        # it's a list of tuples, where the first element
-        # of each tuple is another tuple giving a citation span (start, end, tag)
-        # and the second element is a string containing all the attributes from citation element
-        if preserve_existing:
-            xml_content, citations = self.strip_citation_tags(xml_content)
-        else:
-            # discards all preexisting citation tags in XML
-            xml_content, citations = evaluate.strip_xml_tags(xml_content), None
         # IMPORTANT: Use truncation=False and padding=False to tokenize the entire XML file
         # The sliding window approach will handle chunking
         encoding: transformers.BatchEncoding = self.loader.tokenizer(
@@ -125,8 +135,6 @@ class CitationTagger:
         attention_mask = encoding.attention_mask[0]
         offset_mapping = encoding.offset_mapping[0]
 
-        # Stream xml strings with citation tags inserted based on predicted labels to a tmp file,
-        # then replace original xml with tmp file
         temp_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -137,37 +145,86 @@ class CitationTagger:
                 suffix=".tmp",
             ) as f:
                 temp_path = Path(f.name)
-                for (
-                    batch_strings,
-                    batch_encodings,
-                    batch_labels,
-                    batch_citations,
-                ) in self._stream_labels_batched(
-                    input_ids, attention_mask, offset_mapping, xml_content, citations
-                ):
-                    # Skip empty results (from windows with no reliable center)
-                    if not batch_strings or not batch_labels:
-                        continue
-                    # Write a batch of characters to XML file with <cit>, <bibl>, and <quote> tags inserted
-                    xml_string = "".join(
-                        self.inference_model.insert_tags_into_xml(
-                            batch_strings,
-                            batch_encodings,
-                            batch_labels,
-                            batch_citations,
-                        )
-                    )
-                    f.write(xml_string)
+                labels = self._get_labels(input_ids, attention_mask, offset_mapping)
 
-            # this approach to wrapping adjacent <bibl> <quote> pairs in a <cit> tag
-            # is somewhat inefficient, but much cleaner than incorporating this into
-            # the core XML processing logic
-            reconstructed_xml = temp_path.read_text()
-            # Pass the original XML to help validate and fix any malformed tags
-            cit_wrapped_xml = self.post_process(
-                reconstructed_xml, xml_path, original_xml
-            )
-            temp_path.write_text(cit_wrapped_xml)
+                # NOTE: offset_mapping is the only way to construct a minimally modified version
+                # of the original text
+
+                assert len(labels) == len(offset_mapping), (
+                    "Labels and offsets aren't aligned"
+                )
+                new_xml: list[str] | str = []
+                in_entity = False
+                last_label = "O"
+                last_end = 0
+
+                for label, (start, end) in zip(labels, offset_mapping):
+                    # This handles special tokens
+                    if start == end:
+                        continue
+
+                    # this shouldn't do anything, but could handle overlaps if weird
+                    # things happen with unicode normalization
+                    start = max(start, last_end)
+
+                    # Deal with invalid prediction
+                    if not in_entity and label[0] == "I":
+                        logger.warning(
+                            f"Invalid: {label} without 'B-' label and with preceding context {''.join(new_xml[-50:])}"
+                        )
+                        label = "O"
+
+                    if label == "O":
+                        if in_entity:
+                            assert last_label != "O"
+                            new_xml.append(f"[{last_label}_END]")
+                            in_entity = False
+
+                        if start > last_end:
+                            new_xml.append(xml_content[last_end:start])
+                        new_xml.append(xml_content[start:end])
+                        last_label = "O"
+                        last_end = end
+                        continue
+
+                    label_type, label_name = label.split("-")
+                    if label_type == "B":
+                        if in_entity:
+                            assert last_label != "O"
+                            new_xml.append(f"[{last_label}_END]")
+                        if start > last_end:
+                            new_xml.append(xml_content[last_end:start])
+                        new_xml.extend(
+                            [f"[{label_name}_START]", xml_content[start:end]]
+                        )
+                        in_entity = True
+                    # label_type == "I"
+                    else:
+                        if label_name != last_label:
+                            logger.warning(
+                                f"Invalid: I-{last_label} followed by I-{label_name} with preceding context {''.join(new_xml[-50:])}"
+                            )
+                            assert last_label != "O"
+                            new_xml.append(f"[{last_label}_END]")
+                            label_name = "O"
+                        if start > last_end:
+                            new_xml.append(xml_content[last_end:start])
+                        new_xml.append(xml_content[start:end])
+
+                    last_label = label_name
+                    last_end = end
+
+                # This really shouldn't be applicable, but just in case a snippet is passed
+                # in that ends with a predicted tag:
+                if in_entity:
+                    assert last_label != "O"
+                    new_xml.append(f"[{last_label}_END]")
+
+                new_xml = self._fix_malformed_predictions(new_xml)
+
+                new_xml = "".join(new_xml)
+
+                temp_path.write_text(new_xml)
             # atomic replace of original xml file
             if overwrite:
                 temp_path.replace(xml_path)
@@ -178,6 +235,11 @@ class CitationTagger:
                 copy_dir = xml_path.parent / "processed"
                 copy_dir.mkdir(exist_ok=True)
                 temp_path.replace(copy_dir / xml_path.name)
+
+        except XMLSyntaxError as e:
+            logger.warning(f"Failed to process {xml_path}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to process {xml_path} {e}", exc_info=True)
         finally:
             # Clean up temp file
             if temp_path and temp_path.exists():
@@ -218,23 +280,15 @@ class CitationTagger:
         print(f"Setting batch size to {new_batch_size}")
         self._batch_size = new_batch_size
 
-    def _stream_labels_batched(
+    def _get_labels(
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        offset_mapping: torch.Tensor | list[tuple[int, int]],
-        xml_content: str,
-        citations: None | list[tuple[int, int, str, str]] = None,
         batch_size: int | None = None,
-    ) -> Iterator[
-        tuple[
-            str,
-            transformers.BatchEncoding,
-            list[str],
-            None | list[tuple[int, int, str, str]],
-        ]
-    ]:
+    ) -> list[str]:
         """
+        Predictions from sliding windows over the tokenized XML.
+
         Args:
             input_ids: BatchEncoding attribute with token ids
             attention_mask: batch_encoding attribute
@@ -242,131 +296,374 @@ class CitationTagger:
             xml_content: The original XML content text (for extracting windows)
             batch_size: dynamically set by default
         Returns:
-            Iterator over tuples with the arguments for InferenceModel.insert_tags_into_xml
+            labels: list of BIO label strings
         """
+        # Step 1: Create all windows
+        # Step 2: Predict on windows in batches
+        # Step 3: Merge predictions using reliable centers
+        # Step 4: Convert to label strings
+
+        def flatten_tensor(t: torch.Tensor, name: str) -> torch.Tensor:
+            if t.ndim > 2:
+                raise ValueError(
+                    f"CitationTagger._get_labels received {name} Tensor with more than 2 dimensions"
+                )
+            # smooth out batched-format input tensors if applicable
+            if t.ndim == 2:
+                try:
+                    t = t.squeeze(0)
+                except RuntimeError:
+                    raise ValueError(
+                        f"It looks like CitationTagger._get_labels may have received batched input for {name}"
+                    )
+            return t
+
+        input_ids = flatten_tensor(input_ids, "input_ids")
+        attention_mask = flatten_tensor(attention_mask, "attention_mask")
+
+        # Step 1: Create windows
+
         if batch_size is None:
             batch_size = self.batch_size
         else:
             self.batch_size = batch_size
+
         # Collect windows into batches
         windows = []
-        window_indices = []
         last_reliable_end = 0  # Track where the last window's reliable center ended
 
         # Create sliding windows
         n_tokens = len(input_ids)
         for window_start in range(0, n_tokens, self.stride):
             window_end = min(window_start + self.window_size, n_tokens)
-            # Get window tokens
-            window_tokens = input_ids[window_start:window_end].unsqueeze(0)
-            window_mask = attention_mask[window_start:window_end].unsqueeze(0)
-            window_offsets = offset_mapping[window_start:window_end]
-            windows.append(
-                {
-                    "input_ids": window_tokens,
-                    "attention_mask": window_mask,
-                    "offset_mapping": window_offsets,
-                }
-            )
-            window_indices.append((window_start, window_end, last_reliable_end))
 
-            # Update last_reliable_end based on this window
+            # Calculate reliable center for this window
             if window_end - window_start < self.window_size:
-                # Last window - use all remaining tokens
-                last_reliable_end = window_end
+                reliable_end = window_end
             else:
                 if window_start == 0:
-                    last_reliable_end = (
-                        self.stride + (self.window_size - self.stride) // 2
-                    )
+                    reliable_end = self.stride + (self.window_size - self.stride) // 2
                 else:
-                    last_reliable_end += self.stride
+                    reliable_end = last_reliable_end + self.stride
 
-            # When batch is full, process it
-            if len(windows) == batch_size:
-                yield from self._process_window_batch(
-                    windows, window_indices, xml_content, citations
-                )
-                windows = []
-                window_indices = []
+            windows.append(
+                {
+                    "start": window_start,
+                    "end": window_end,
+                    "reliable_start": last_reliable_end,
+                    "reliable_end": reliable_end,
+                    "input_ids": input_ids[window_start:window_end],
+                    "attention_mask": attention_mask[window_start:window_end],
+                }
+            )
+            last_reliable_end = reliable_end
 
-        # get last (incomplete) batch
-        if windows:
-            yield from self._process_window_batch(
-                windows, window_indices, xml_content, citations
+        # Step 2: Predict on all windows in batches
+        all_window_predictions = []
+
+        for batch_start in range(0, len(windows), self.batch_size):
+            batch_windows = windows[batch_start : batch_start + self.batch_size]
+
+            # Pad windows to same length for batching
+            max_len = max(w["input_ids"].shape[0] for w in batch_windows)
+
+            batch_input_ids = torch.stack(
+                [
+                    torch.nn.functional.pad(
+                        w["input_ids"], (0, max_len - w["input_ids"].shape[0])
+                    )
+                    for w in batch_windows
+                ]
             )
 
-    def _process_window_batch(
-        self,
-        windows: list[dict[str, torch.Tensor]],
-        window_indices: list[tuple[int, int, int]],
-        xml_content: str,
-        citations: None | list[tuple[int, int, str, str]] = None,
-    ) -> Iterator[
-        tuple[
-            str,
-            transformers.BatchEncoding,
-            list[str],
-            None | list[tuple[int, int, str, str]],
-        ]
-    ]:
-        max_len = max(w["input_ids"].shape[1] for w in windows)
-
-        batch_input_ids = torch.stack(
-            [
-                torch.nn.functional.pad(
-                    w["input_ids"].squeeze(0), (0, max_len - w["input_ids"].shape[1])
-                )
-                for w in windows
-            ]
-        )
-        batch_attention_mask = torch.stack(
-            [
-                torch.nn.functional.pad(
-                    w["attention_mask"].squeeze(0),
-                    (0, max_len - w["attention_mask"].shape[1]),
-                )
-                for w in windows
-            ]
-        )
-        batch_offsets = torch.stack(
-            [
-                torch.nn.functional.pad(
-                    w["offset_mapping"],
-                    (0, 0, 0, max_len - w["offset_mapping"].shape[0]),
-                )
-                for w in windows
-            ]
-        )
-
-        # Run batched inference
-        batch_input_ids = batch_input_ids.to(self.device)
-        batch_attention_mask = batch_attention_mask.to(self.device)
-
-        with torch.no_grad():
-            outputs = self.inference_model.model(
-                input_ids=batch_input_ids, attention_mask=batch_attention_mask
+            batch_attention_mask = torch.stack(
+                [
+                    torch.nn.functional.pad(
+                        w["attention_mask"], (0, max_len - w["attention_mask"].shape[0])
+                    )
+                    for w in batch_windows
+                ]
             )
-        predictions = outputs.logits.argmax(dim=-1)
-        for i, (start, end, prev_reliable_end) in enumerate(window_indices):
-            window_length = end - start
-            labels = [ID2LABEL[p] for p in predictions[i, :window_length].tolist()]
-            center_text, center_encoding, center_labels, chunk_citations = (
-                self._get_center(
-                    labels,
-                    start,
-                    end,
-                    prev_reliable_end,
-                    batch_input_ids[i],
-                    batch_attention_mask[i],
-                    batch_offsets[i],
-                    xml_content,
-                    citations,
-                )
-            )
-            yield center_text, center_encoding, center_labels, chunk_citations
 
-        del batch_input_ids, batch_attention_mask, outputs, predictions
+            # Move to device and predict
+            batch_input_ids = batch_input_ids.to(self.device)
+            batch_attention_mask = batch_attention_mask.to(self.device)
+
+            with torch.no_grad():
+                outputs = self.inference_model.model(
+                    input_ids=batch_input_ids, attention_mask=batch_attention_mask
+                )
+
+            # predictions has dimensions [batch_size, max_len]
+            predictions = outputs.logits.argmax(dim=-1)
+
+            # Store predictions for each window (unpadded)
+            for i, window in enumerate(batch_windows):
+                window_length = window["end"] - window["start"]
+                all_window_predictions.append(predictions[i, :window_length].cpu())
+
+        # Step 3: Merge predictions using reliable centers
+        final_predictions = [None] * n_tokens
+
+        for window, window_preds in zip(windows, all_window_predictions):
+            # index within window
+            reliable_start_idx = window["reliable_start"] - window["start"]
+            reliable_end_idx = window["reliable_end"] - window["start"]
+
+            # Copy reliable predictions
+            final_predictions[window["reliable_start"] : window["reliable_end"]] = [
+                window_preds[i].item()
+                for i in range(reliable_start_idx, reliable_end_idx)
+            ]
+
+        def get_pred_label(pred_val: int | None) -> str:
+            if pred_val is None:
+                raise ValueError(
+                    "Issue with window logic in CitationTagger._get_labels"
+                )
+            return ID2LABEL[pred_val]
+
+        # Step 4: convert prediction indices to label strings
+        return [get_pred_label(pred) for pred in final_predictions]
+
+    # TODO: Add unit test for this
+    @staticmethod
+    def _handle_tag_stack(
+        new_tag: str,
+        tag_stack: list[tuple[str, int]],
+        prior_xml_pieces: list[str],
+        new_tag_is_prediction: bool = True,
+    ) -> tuple[list[tuple[str, int]], list[str], bool]:
+        """
+        Repairs malformed XML nesting by reordering misplaced closing tags.
+
+        Semantics:
+        - Opening tags are appended normally, or to the right if they fall
+          within the angle brackets of a tag.
+        - Closing tags are either appended if not within tag itself, otherwise
+          are inserted to left of tag.
+        - If closing tag does is not well-formed with prior opening tag,
+          the closing tag tag is moved left until it forms valid XML
+        - NOTE: implementation is a bit awkward, in that _handle_tag_stack
+          sometimes mutates prior_xml_pieces, and sometimes doesn't.
+          If new_tag still needs to be appended, the third element
+          in the returned tuple is True.
+
+        tag_stack stores (opening_tag_text, index_in_prior_xml_pieces).
+        """
+
+        def tag_name(tag: str) -> str:
+            m = re.match(r"</?\s*([A-Za-z_][\w:.-]*)", tag)
+            if not m:
+                raise ValueError(f"Invalid tag: {tag}; new_tag: {new_tag}")
+            return m.group(1)
+
+        # ---- Self-closing tag ----
+        if new_tag.endswith("/>"):
+            return tag_stack, prior_xml_pieces, True
+
+        # ---- Closing tag ----
+        if new_tag.startswith("</"):
+            name = tag_name(new_tag)
+            # We're not interested in repairing any tags
+            # but the ones we're inserting
+            if not new_tag_is_prediction:
+                if len(tag_stack) == 0:
+                    raise ValueError("XML is invalid")
+                if tag_stack[-1][0][1] != "/" and tag_name(tag_stack[-1][0]) == name:
+                    del tag_stack[-1]
+                    return tag_stack, prior_xml_pieces, True
+                else:
+                    tag_stack.append((new_tag, len(prior_xml_pieces)))
+                    # if we have <a><predicted_a></a></predicted_a>
+                    # then the current tag_stack could be
+                    # <a><predicted_a></a>, i.e. invalid, and needs to be
+                    # repaired by moving <predicted_a> when we encounter </predicted_a>,
+                    # i.e. <a></a><predicted_a></predicted_a>
+                return tag_stack, prior_xml_pieces, True
+
+            # Fast path: well-nested -> emit normally
+            if tag_stack and tag_name(tag_stack[-1][0]) == name:
+                tag_stack.pop()
+                return tag_stack, prior_xml_pieces, True
+
+            # Find matching opening tag in the stack
+            for idx in range(len(tag_stack) - 1, -1, -1):
+                if tag_name(tag_stack[idx][0]) == name:
+                    break
+            else:
+                logger.warning(
+                    f"No opening tag found for {new_tag} while repairing malformed predictions; dropping it"
+                )
+                return tag_stack, prior_xml_pieces, False
+
+            # Move opening tag right until XML is well nested
+            open_tag, open_pos = tag_stack[idx]
+            # The blocking tag is the LAST tag opened after the opening tag
+            # (i.e., the last element in the tag_stack)
+            _, insertion_pos = tag_stack[-1]
+            insertion_pos += 1
+
+            prior_xml_pieces.insert(insertion_pos, open_tag)
+            prior_xml_pieces.append(new_tag)
+
+            # check if previously ophaned opening tag was separating matching tags
+            while (
+                idx > 0
+                and idx < (len(tag_stack) - 1)
+                and tag_stack[idx - 1][0][1] != "/"
+                and tag_stack[idx + 1][0][1] == "/"
+            ):
+                prev_name, next_name = (
+                    tag_name(tag_stack[idx - 1][0]),
+                    tag_name(tag_stack[idx + 1][0]),
+                )
+                if prev_name == next_name:
+                    del tag_stack[idx - 1]
+                    idx -= 1
+                    del tag_stack[idx + 1]
+
+            # Remove the matched opening tag from the stack and its prior position from prior_xml_pieces
+            del tag_stack[idx]
+            del prior_xml_pieces[open_pos]
+
+            # Adjust stored positions for tags that occur after the insertion point
+            for i in range(len(tag_stack)):
+                tag, pos = tag_stack[i]
+                if open_pos < pos < insertion_pos:
+                    tag_stack[i] = (tag, pos - 1)
+
+            # closing tag already emitted
+            return tag_stack, prior_xml_pieces, False
+
+        # ---- Opening tag ----
+        else:
+            tag_stack.append((new_tag, len(prior_xml_pieces)))
+            return tag_stack, prior_xml_pieces, True
+
+    # TODO: Add unit test for this
+    @staticmethod
+    def _fix_malformed_predictions(xml: list[str] | str) -> list[str]:
+        if isinstance(xml, list):
+            xml = "".join(xml)
+
+        pattern = re.compile(
+            r"("
+            r"<!--[\s\S]*?-->"  # XML comments
+            r"|<!"
+            r'(?:[^>"\']+|"[^"]*"|\'[^\']*\')+'
+            r">"
+            r"|<\?"
+            r'(?:[^>"\']+|"[^"]*"|\'[^\']*\')+'
+            r"\?>"
+            r"|<"
+            r'(?:[^>"\']+|"[^"]*"|\'[^\']*\')+'
+            r">"
+            r")"
+        )
+
+        re_tokenized = re.split(pattern, xml)
+
+        # Now, every tag, even if it has e.g. [BIBL_START] invalidly inside it, is
+        # its own element, and each tag-like element (e.g. CDATA), and then each
+        # content between two tags or tag-like elements
+
+        tag_stack: list[tuple[str, int]] = []
+        xml_with_preds = []
+        special_token_pattern = r"(\[[A-Z]+_(?:START|END)\])"
+        for token in re_tokenized:
+            if "_START]" in token or "_END]" in token:
+                # deal with tag-like structures
+                if token[0] == "<" and token[-1] == ">":
+                    # deal with non-tag structures with <>
+                    opening_special_tags = []
+                    for special_token in re.findall(special_token_pattern, token):
+                        special_tag = SPECIAL_TOKENS_MAPPING[special_token]
+                        token = token.replace(special_token, "")
+                        # opening tags are easy
+                        if special_tag[1] != "/":
+                            opening_special_tags.append(special_tag)
+                        # closing tags trigger nesting checks
+                        else:
+                            # handle case where both opening and closing special tag are in regular tag
+                            corres_tag = f"<{special_tag[2:-1]}>"
+                            if corres_tag in opening_special_tags:
+                                for i in range(len(opening_special_tags) - 1, -1, -1):
+                                    if opening_special_tags[i] == corres_tag:
+                                        del opening_special_tags[i]
+                                        break
+                                # skip special tags entirely contained within regular tag
+                                continue
+                            # Now handle case where only closing tag is within regular tag
+                            tag_stack, xml_with_preds, emit = (
+                                CitationTagger._handle_tag_stack(
+                                    special_tag, tag_stack, xml_with_preds
+                                )
+                            )
+                            if emit:
+                                xml_with_preds.append(special_tag)
+
+                    # if <...> entity is a comment etc., don't pass it through tag handling logic
+                    if token[1] == "!" or token[1] == "?":
+                        xml_with_preds.append(token)
+                    # First emit the regular tag
+                    else:
+                        tag_stack, xml_with_preds, emit = (
+                            CitationTagger._handle_tag_stack(
+                                token, tag_stack, xml_with_preds, False
+                            )
+                        )
+                        if emit:
+                            xml_with_preds.append(token)
+
+                    # Then emit opening special tags
+                    for open_tag in opening_special_tags:
+                        tag_stack, xml_with_preds, emit = (
+                            CitationTagger._handle_tag_stack(
+                                open_tag, tag_stack, xml_with_preds
+                            )
+                        )
+                        if emit:
+                            xml_with_preds.append(open_tag)
+
+                    # token has now been stripped of all special tokens
+                    continue
+                # Non-tag-like structures
+                split_by_spec = re.split(special_token_pattern, token)
+                for tkn in split_by_spec:
+                    is_spec_tkn = False
+                    if tkn in SPECIAL_TOKENS_MAPPING:
+                        is_spec_tkn = True
+                    tkn = SPECIAL_TOKENS_MAPPING.get(tkn, tkn)
+                    if len(tkn) > 2 and tkn[0] == "<" and tkn[-1] == ">":
+                        tag_stack, xml_with_preds, emit = (
+                            CitationTagger._handle_tag_stack(
+                                tkn, tag_stack, xml_with_preds, is_spec_tkn
+                            )
+                        )
+                        if emit:
+                            xml_with_preds.append(tkn)
+                    else:
+                        xml_with_preds.append(tkn)
+
+            else:
+                # Handle tokens without special tokens (much simpler case)
+                if len(token) > 2 and (token[0] == "<" and token[-1] == ">"):
+                    # check that not merely tag-like entity
+                    if not (token[1] == "!" or token[1] == "?"):
+                        tag_stack, xml_with_preds, emit = (
+                            CitationTagger._handle_tag_stack(
+                                token, tag_stack, xml_with_preds, False
+                            )
+                        )
+                        if emit:
+                            xml_with_preds.append(token)
+                    else:
+                        xml_with_preds.append(token)
+                else:
+                    xml_with_preds.append(token)
+
+        return xml_with_preds
 
     @staticmethod
     def _get_tag_name(element: _Element) -> str:
@@ -391,52 +688,6 @@ class CitationTagger:
             remaining = xml_string[len(preamble) :]
             return preamble, remaining
         return "", xml_string
-
-    def _extract_text_from_offsets(
-        self,
-        offset_mapping: torch.Tensor | list[tuple[int, int]],
-        xml_content: str,
-        start_idx: int,
-        end_idx: int,
-        fallback_ids: torch.Tensor | None = None,
-    ) -> tuple[str, int, int]:
-        """Extract text from xml_content using offset_mapping.
-
-        Args:
-            offset_mapping: Token offset mapping (can be Tensor or list of tuples)
-            xml_content: The original XML text
-            start_idx: Start index in offset_mapping
-            end_idx: End index in offset_mapping
-            fallback_ids: Token IDs to decode if all offsets are special tokens
-
-        Returns:
-            (text, char_start, char_end) where char_start/end are positions in xml_content
-        """
-        # Convert to list of tuples for uniform processing
-        if isinstance(offset_mapping, torch.Tensor):
-            offsets = [
-                (int(offset_mapping[i, 0].item()), int(offset_mapping[i, 1].item()))
-                for i in range(start_idx, end_idx)
-            ]
-        else:
-            offsets = list(offset_mapping[start_idx:end_idx])
-
-        # Filter out special tokens (offset = (0, 0))
-        non_zero_offsets = [(s, e) for s, e in offsets if s != e]
-
-        if non_zero_offsets:
-            char_start = non_zero_offsets[0][0]
-            char_end = non_zero_offsets[-1][1]
-            return xml_content[char_start:char_end], char_start, char_end
-        else:
-            # All special tokens, use decode as fallback
-            if fallback_ids is not None:
-                text = self.loader.tokenizer.decode(
-                    fallback_ids, skip_special_tokens=True
-                )
-            else:
-                text = ""
-            return text, 0, len(text)
 
     @classmethod
     def _handle_cit_elt(cls, element: _Element) -> None:
@@ -503,495 +754,3 @@ class CitationTagger:
             cit.tail = next_elem_tail
 
         return
-
-    @staticmethod
-    def _handle_orphans(root: _Element, element: _Element) -> None:
-        """Merge adjacent citation elements of the same type (e.g., two <bibl> tags)."""
-        parent = element.getparent()
-        if parent is None:
-            return
-
-        # Find the element's index in parent's children
-        try:
-            index = list(parent).index(element)
-        except ValueError:
-            return
-
-        # Check if next sibling has the same tag
-        if index + 1 < len(parent):
-            next_elem = parent[index + 1]
-            # Only merge if they have the same tag AND are truly adjacent
-            # (no text or only whitespace between them)
-            has_non_whitespace_between = element.tail and not element.tail.isspace()
-            if (
-                CitationTagger._get_tag_name(next_elem)
-                == CitationTagger._get_tag_name(element)
-                and not has_non_whitespace_between
-            ):
-                # Merge next element into current element
-                # Concatenate text and children
-                if element.text:
-                    if not len(element):  # No children
-                        # Just append next element's content to this element's text
-                        if next_elem.text:
-                            element.text = element.text + next_elem.text
-                    else:
-                        # Has children - append to last child's tail
-                        last_child = element[-1]
-                        if last_child.tail:
-                            last_child.tail = last_child.tail + (next_elem.text or "")
-                        else:
-                            last_child.tail = next_elem.text
-                else:
-                    element.text = next_elem.text
-
-                # Move all children from next element to current element
-                for child in list(next_elem):
-                    element.append(child)
-
-                # Preserve the tail of the next element
-                if next_elem.tail:
-                    element.tail = (element.tail or "") + next_elem.tail
-                else:
-                    element.tail = next_elem.tail
-
-                # Remove the next element
-                parent.remove(next_elem)
-
-                # Recursively check if there are more siblings to merge
-                CitationTagger._handle_orphans(root, element)
-        return
-
-    def validate_and_remove_malformed_tags(
-        self,
-        xml_string: str,
-        xml_path: Path | None = None,
-        original_xml: str | None = None,
-    ) -> str:
-        """
-        Validate XML and remove citation tags that cause malformation.
-
-        Uses original XML (if provided) to distinguish between original (good) citations
-        and newly inserted (potentially bad) citations.
-
-        Args:
-            xml_string: XML string potentially containing malformed citation tags
-            xml_path: Optional path for error messages
-            original_xml: Optional original XML before tag insertion
-
-        Returns:
-            Valid XML string with only well-formed citation tags
-        """
-        preamble, content = self._extract_preamble(xml_string)
-
-        # Try parsing as-is first
-        try:
-            etree.fromstring(f"<root>{content}</root>")
-            return xml_string  # Already valid!
-        except etree.XMLSyntaxError:
-            logger.warning(
-                f"XML validation failed for {xml_path or 'string'}, attempting to fix..."
-            )
-
-        # If we have the original XML, use it to distinguish original vs inserted citations
-        if original_xml:
-            try:
-                # Strip citations from both to get base content
-                _, result_citations = self.strip_citation_tags(xml_string)
-                _, orig_citations = self.strip_citation_tags(original_xml)
-
-                # Convert to sets of (start, end, type, attrs) for comparison
-                orig_set = set(orig_citations)
-
-                # New citations are those in result but not in original
-                new_citations = [c for c in result_citations if c not in orig_set]
-
-                # Original citations we know are good
-                good_citations = orig_citations
-
-                logger.debug(
-                    f"Found {len(new_citations)} newly inserted citations, {len(good_citations)} original"
-                )
-
-                for cit_start, cit_end, tag_type, attrs in good_citations:
-                    # Insert this citation
-                    # TODO: This is complex because positions shift - need better approach
-                    pass
-
-                # For now, fall back to simpler approach below
-            except Exception as e:
-                logger.warning(
-                    f"Error using original XML for validation: {e}, falling back"
-                )
-                original_xml = None
-
-        # Fallback: Test each citation individually
-        # Strip all citations to get clean base XML
-        stripped_content, all_citations = self.strip_citation_tags(xml_string)
-        _, base_content = self._extract_preamble(stripped_content)
-
-        # Verify base XML is valid
-        try:
-            etree.fromstring(f"<root>{base_content}</root>")
-        except etree.XMLSyntaxError as e:
-            logger.error(
-                f"Base XML (without citations) is malformed for {xml_path or 'string'}: {e}"
-            )
-            return stripped_content
-
-        # Test each citation individually by trying to insert it into base XML
-        valid_citations = []
-        skipped_count = 0
-
-        for cit_start, cit_end, tag_type, attrs in all_citations:
-            # Reconstruct this citation tag
-            tag_open = f"<{tag_type.lower()}{attrs}>"
-            tag_close = f"</{tag_type.lower()}>"
-            cit_content = base_content[cit_start:cit_end]
-
-            # Try inserting JUST THIS citation into base XML
-            test_content = (
-                base_content[:cit_start]
-                + tag_open
-                + cit_content
-                + tag_close
-                + base_content[cit_end:]
-            )
-
-            # Validate
-            try:
-                etree.fromstring(f"<root>{test_content}</root>")
-                # Valid! Mark this citation as good
-                valid_citations.append((cit_start, cit_end, tag_type, attrs))
-            except etree.XMLSyntaxError:
-                # Invalid - skip this citation
-                skipped_count += 1
-                logger.debug(
-                    f"Skipping malformed {tag_type} at ({cit_start}, {cit_end})"
-                )
-
-        if skipped_count > 0:
-            logger.info(
-                f"Removed {skipped_count} malformed citation tags from {xml_path or 'string'}"
-            )
-
-        # Now build final XML with all valid citations
-        # Need to insert in reverse order to avoid position shifting
-        valid_citations.sort(key=lambda x: x[0], reverse=True)
-
-        final_content = base_content
-        for cit_start, cit_end, tag_type, attrs in valid_citations:
-            tag_open = f"<{tag_type.lower()}{attrs}>"
-            tag_close = f"</{tag_type.lower()}>"
-            cit_content = base_content[cit_start:cit_end]
-
-            # Insert from right to left so positions stay valid
-            final_content = (
-                final_content[:cit_start]
-                + tag_open
-                + cit_content
-                + tag_close
-                + final_content[cit_end:]
-            )
-
-        return preamble + final_content
-
-    def post_process(
-        self,
-        xml_string: str,
-        xml_path: Path | None = None,
-        original_xml: str | None = None,
-    ) -> str:
-        """
-        This handles citation tags that have been split
-        across windows, and also encloses neighboring
-        <bibl> and <quote> tags in a <cit> tag
-
-        Args:
-            xml_string: XML with inserted citation tags
-            xml_path: Optional path for logging
-            original_xml: Optional original XML before tag insertion, used to validate
-        """
-        # First, validate and fix any malformed XML from straddling tags
-        xml_string = self.validate_and_remove_malformed_tags(
-            xml_string, xml_path, original_xml
-        )
-
-        # Extract and preserve XML declaration and processing instructions
-        # These cannot be wrapped in a <root> element
-        preamble, xml_string = self._extract_preamble(xml_string)
-
-        # Parse with lxml - wrap in root element to handle fragments
-        try:
-            root = etree.fromstring(f"<root>{xml_string}</root>")
-        except etree.XMLSyntaxError as e:
-            # If it fails, try with a recovering XML parser
-            path_info = f"file {xml_path}" if xml_path else "XML string"
-            logger.warning(
-                f"XML parsing failed for {path_info}, attempting recovery: {e}"
-            )
-            try:
-                parser = etree.XMLParser(recover=True)
-                root = etree.fromstring(f"<root>{xml_string}</root>", parser=parser)
-                logger.warning(f"Successfully recovered malformed XML for {path_info}")
-            except Exception as recover_error:
-                logger.exception(
-                    f"Even recovering parser failed for {path_info}: {recover_error}"
-                )
-                raise recover_error
-
-        # First pass: handle orphans (merge adjacent same-type tags)
-        for element in root.iter():
-            if self._get_tag_name(element).lower() in self.cit_elements:
-                self._handle_orphans(root, element)
-
-        # Second pass: wrap bibl-quote pairs in cit tags
-        # Need to re-iterate because tree was modified
-        for element in root.iter():
-            if self._get_tag_name(element).lower() in self.cit_elements:
-                self._handle_cit_elt(element)
-
-        # Serialize back to string, restoring preamble (XML declaration + processing instructions)
-        # Get the content inside our wrapper root element
-        result_parts = [preamble] if preamble else []
-        if root.text:
-            result_parts.append(root.text)
-        for child in root:
-            # tostring includes the element's tail by default, so don't add it separately
-            # xml_declaration=False ensures no <?xml...?> is added
-            result_parts.append(
-                etree.tostring(
-                    child, encoding="unicode", method="xml", xml_declaration=False
-                )
-            )
-
-        return "".join(result_parts)
-
-    def _get_center(
-        self,
-        labels: list[str],
-        start: int,
-        end: int,
-        prev_reliable_end: int,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        offset_mapping: torch.Tensor | list[tuple[int, int]],
-        xml_content: str,
-        citations: None | list[tuple[int, int, str, str]] = None,
-    ) -> tuple[
-        str,
-        transformers.BatchEncoding,
-        list[str],
-        None | list[tuple[int, int, str, str]],
-    ]:
-        """
-        Args:
-            labels: the labels for the tokens in a given window
-            start: start index for the window
-            end: end index for the window
-            prev_reliable_end: where the previous window's reliable center ended
-            offset_mapping: Tensor where offset_mapping[i] gives a Tensor of shape (seq_length, 2)
-            xml_content: The original XML content text
-            citations: List of existing citations with positions in xml_content
-        Note:
-            Offset_mapping is a Tensor if tokenization has return_tensors="pt", by default it's a list of tuples.
-            Since the whole file is tokenized at once, there's only one sequence here.
-        """
-        # Use prev_reliable_end to ensure no overlaps or gaps
-        reliable_start = prev_reliable_end
-        # Calculate reliable_end
-        if end - start < self.window_size:
-            # Last window - use all remaining tokens
-            reliable_end = end
-        else:
-            if start == 0:
-                reliable_end = self.stride + (self.window_size - self.stride) // 2
-            else:
-                reliable_end = reliable_start + self.stride
-
-        # If reliable center is empty, skip this window
-        # This can happen for the last window if it's already been fully covered
-        if reliable_start >= reliable_end:
-            # Return empty result - will be filtered out by caller
-            return (
-                "",
-                transformers.BatchEncoding({"input_ids": torch.tensor([[]])}),
-                [],
-                None,
-            )
-
-        window_length = end - start
-        # Use window-relative indexing
-        center_ids = input_ids[:window_length]
-
-        # Extract text from original XML using offset_mapping instead of decoding
-        # This preserves the exact XML structure
-        # IMPORTANT: Only extract the reliable center portion, not the entire window
-        reliable_offset_start = reliable_start - start
-        reliable_offset_end = reliable_end - start
-
-        # Use helper method to extract text
-        center_text, char_start, char_end = self._extract_text_from_offsets(
-            offset_mapping,
-            xml_content,
-            reliable_offset_start,
-            reliable_offset_end,
-            fallback_ids=center_ids[reliable_offset_start:reliable_offset_end],
-        )
-
-        # Adjust offset_mapping to be relative to center_text instead of full xml_content
-        # Use only the reliable center portion
-        if isinstance(offset_mapping, torch.Tensor):
-            # Clone and adjust offsets for the reliable center
-            offset_map = offset_mapping[
-                reliable_offset_start:reliable_offset_end
-            ].clone()
-            offset_map[:, 0] -= char_start
-            offset_map[:, 1] -= char_start
-            offset_map = offset_map.unsqueeze(0)
-        else:
-            # Adjust list of tuples for the reliable center
-            center_offsets = offset_mapping[reliable_offset_start:reliable_offset_end]
-            offset_map = [
-                [
-                    (start - char_start, end - char_start)
-                    for start, end in center_offsets
-                ]
-            ]
-
-        # Create encoding with only the reliable center tokens
-        center_encoding = transformers.BatchEncoding(
-            {
-                "input_ids": center_ids[
-                    reliable_offset_start:reliable_offset_end
-                ].unsqueeze(0),
-                "attention_mask": attention_mask[
-                    reliable_offset_start:reliable_offset_end
-                ].unsqueeze(0),
-                "offset_mapping": offset_map,
-            }
-        )
-
-        # Filter and adjust citations for this chunk
-        chunk_citations = None
-        if citations:
-            chunk_citations = []
-            for cit_start, cit_end, tag_type, attrs in citations:
-                # Check if citation overlaps with this chunk's character range
-                if cit_end > char_start and cit_start < char_end:
-                    # Adjust positions to be relative to center_text
-                    adjusted_start = max(0, cit_start - char_start)
-                    adjusted_end = min(len(center_text), cit_end - char_start)
-                    chunk_citations.append(
-                        (adjusted_start, adjusted_end, tag_type, attrs)
-                    )
-
-        return (
-            center_text,
-            center_encoding,
-            [labels[i - start] for i in range(reliable_start, reliable_end)],
-            chunk_citations,
-        )
-
-    def strip_citation_tags(
-        self, xml_content: str
-    ) -> tuple[str, list[tuple[int, int, str, str]]]:
-        """
-        Strip citation tags and track their positions in the stripped text.
-
-        Returns:
-            (stripped_text, citations)
-            where citations is a list of (start_char, end_char, tag_type, attributes)
-            and positions are character offsets in stripped_text
-        """
-
-        # Extract and preserve XML declaration and processing instructions
-        # These cannot be wrapped in a <root> element
-        preamble, xml_content = self._extract_preamble(xml_content)
-
-        # Parse XML with lxml - wrap in root element to handle fragments
-        try:
-            root = etree.fromstring(f"<root>{xml_content}</root>")
-        except etree.XMLSyntaxError as e:
-            # If it fails, try with a recovering XML parser which is more lenient
-            # This preserves namespaces correctly (unlike HTML parser)
-            logger.debug(
-                f"Initial XML parsing failed in strip_citation_tags, attempting recovery: {e}"
-            )
-            parser = etree.XMLParser(recover=True)
-            root = etree.fromstring(f"<root>{xml_content}</root>", parser=parser)
-            logger.warning(
-                "Successfully recovered malformed XML using recovering parser in strip_citation_tags"
-            )
-
-        # Build stripped text while tracking citation positions
-        citations = []
-        stripped_parts = []
-        # Start position tracking after preamble (XML declaration + processing instructions)
-        current_pos = len(preamble)
-
-        def traverse(element: _Element) -> None:
-            """Recursively traverse the parse tree, building stripped text."""
-            nonlocal current_pos
-
-            # Check if this element is a citation tag
-            tag_name = CitationTagger._get_tag_name(element)
-            is_citation = tag_name.lower() in (
-                "bibl",
-                "quote",
-                "cit",
-            )
-
-            start_pos = None
-            if is_citation:
-                # Record the start position for citation
-                start_pos = current_pos
-            else:
-                opening_tag = get_opening_tag(element)
-                stripped_parts.append(opening_tag)
-                current_pos += len(opening_tag)
-
-            # Add element's text (text before first child)
-            if element.text:
-                stripped_parts.append(element.text)
-                current_pos += len(element.text)
-
-            # Process child elements
-            for child in element:
-                traverse(child)
-                # Add tail text (text after child element)
-                if child.tail:
-                    stripped_parts.append(child.tail)
-                    current_pos += len(child.tail)
-
-            if is_citation:
-                # Record the citation span
-                end_pos = current_pos
-                cit_attrs = get_attrs_as_string(element)
-                citations.append((start_pos, end_pos, tag_name.upper(), cit_attrs))
-            else:
-                # For non-citation tags, include the closing tag
-                closing_tag = f"</{tag_name}>"
-                stripped_parts.append(closing_tag)
-                current_pos += len(closing_tag)
-
-        # Process root's children (unwrap our added root element)
-        if root.text:
-            stripped_parts.append(root.text)
-            current_pos += len(root.text)
-
-        for child in root:
-            traverse(child)
-            if child.tail:
-                stripped_parts.append(child.tail)
-                current_pos += len(child.tail)
-
-        # Rebuild the stripped text, preserving the preamble if it existed
-        result_parts = [preamble] if preamble else []
-        result_parts.extend(stripped_parts)
-        stripped_text = "".join(result_parts)
-
-        # outer tags come before inner tags
-        citations.sort(key=lambda x: (x[0], -x[1]))
-
-        return stripped_text, citations

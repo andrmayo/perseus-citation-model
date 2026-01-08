@@ -61,8 +61,8 @@ def create_model(
 
     # Resize embeddings to include special tokens
     # Use len(tokenizer) instead of vocab_size since vocab_size doesn't include added tokens
-    # Do this only if loading from base model
-    if pretrained_model_path is not None:
+    # Do this only if loading from base model (not from pretrained checkpoint which already has special tokens)
+    if pretrained_model_path is None:
         model.resize_token_embeddings(len(tokenizer))
 
         # Set the new embeddings to mean of existing embeddings

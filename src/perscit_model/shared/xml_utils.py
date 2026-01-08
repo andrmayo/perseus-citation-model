@@ -1,3 +1,5 @@
+import os
+import re
 from typing import cast, Iterable
 from lxml import etree
 from xml import sax
@@ -97,6 +99,14 @@ def get_attrs_as_string(elem: etree._Element) -> str:
     if attrs:
         return f" {' '.join(attrs)}"  # Note leading space
     return ""
+
+
+def get_encoding(xml_path: os.PathLike) -> str | None:
+    """Quickly check encoding of XML file without loading into DOM."""
+    with open(xml_path, "rb") as f:
+        first_line = f.readline()
+    match = re.search(rb'encoding=["\']([^"\']+)["\']', first_line)
+    return match.group(1).decode("ascii") if match else None
 
 
 def strip_spec_elems(

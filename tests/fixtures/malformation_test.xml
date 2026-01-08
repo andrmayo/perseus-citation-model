@@ -1,0 +1,110 @@
+<?xml version='1.0' encoding='utf-8'?>
+<?xml-model href="https://epidoc.stoa.org/schema/latest/tei-epidoc.rng" schematypens="http://relaxng.org/ns/structure/1.0"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader>
+    <fileDesc>
+      <titleStmt>
+        <title>A History of the Giza Necropolis Volume I (Selections)</title>
+        <author>George A. Reisner</author>
+        <principal>Gregory Crane</principal>
+        <respStmt>
+          <resp>Prepared under the supervision of</resp>
+          <name>Lisa Cerrato</name>
+        </respStmt>
+      </titleStmt>
+    </fileDesc>
+    <revisionDesc>
+      <!--
+      <change>
+	<date>18-Sep-02</date>
+	<respStmt>
+	  <name>Thomas L. Milbank</name>
+	  <resp>ed.</resp>
+	</respStmt>
+	<item>
+	$Log: reisner_giza.xml,v $
+	Revision 1.1  2009-12-07 22:06:14  rsingh04
+	moved more xml files around based on copyright status.  split up Plutarch/plut_gk.xml into separate
+      files and gave them their own doc ids.
+
+	Revision 1.1  2005/08/01 16:25:13  packel
+	new XML version
+	
+	Revision 1.2 2002/10/01 18:08:04 tmilbank
+	Text validated for SGML
+	
+	Revision 1.1 2002/09/30 16:29:00 tmilbank
+	Adding G.A. Reisner, Giza Necropolis, Vol. 1 text 
+	</item>
+      </change>
+    -->
+      <change when="2014-11-13" who="Stella Dee">edited markup and assigned CTS URN</change>
+    </revisionDesc>
+  </teiHeader>
+  <text>
+    <!-- Transliterations of the Egyptian alphabet in this text conform to the guidelines set forth
+    in the Manuel de Codage (http://perso.wanadoo.fr/thotweb/encyclopedie/codage.htm) -->
+    <front>
+      <pb xml:id="p.iii" n="iii" />
+      <titlePage>
+        <docTitle>
+          <titlePart type="main"> A History of the<lb /> Giza<lb /> Necropolis<lb /> Volume I <note
+              anchored="true" place="foot" n="*" resp="TLM">Transliterations of the Egyptian
+            alphabet in this text conform to the guidelines set forth in the <title xml:lang="fra">Manuel
+            de Codage</title>
+            </note>
+          </titlePart>
+        </docTitle>
+        <docAuthor> By<lb />
+					<docAuthor>George Andrew Reisner</docAuthor>
+        </docAuthor>
+        <docImprint>
+          <lb />
+          <publisher>Oxford University Press</publisher>
+        </docImprint>
+      </titlePage>
+      <div type="textpart" n="preface" subtype="section">
+        <p[BIBL_START]>In addition to these members of the staff, a number of Egyptian photographers trained by
+        the expedition have taken almost all of the photographs used in Volume I. The photographs
+        from the beginning have been one of the most important records made by the expedition. In
+        the years of the Hearst Expedition the director of the excavations took his own photographs
+        and developed them at night. When I was doing this work I had as assistant in the darkroom
+        Said Ahmed Said and found that he had learned the process of developing the negatives and
+        fixing them. In 1901 I turned over the darkroom work to Said Ahmed. By 1906 I had trained
+        this boy to take the photographs and after that I turned over to him all the work of
+        photography. He trained other boys and we had a succession of peasant boys who acted as
+        photographers: Bedawi Ahmed, Mahmud Shadduf, Bishari Mahfud, Mustapha Abu-el-Hamd,
+        Mohammedani Ibrahim (1912-39), and Dahi Ahmed. Other boys learned the work in the darkroom.
+        The excellence of the plates in this volume is due to the work of the Egyptians trained by
+        the expedition as photographers.
+        <[BIBL_END]/p>
+        <p>The expedition acknowledges its debt to the staff of reises and the workmen who carried
+          out the excavations at Giza. The organization of the force of workmen was highly developed
+          early in the work at Giza to carry out methods devised by me in consultation with the
+          head-reises. The methods of excavation will be explained in another place. The head-reises
+          working at Giza were as follows: <list type="ordered"> [QUOTE_START]<item n="1">Salman el Firnisi, 1902-4.</item>[QUOTE_END] <item n="2">[BIBL_START]Mahmud Ahmed Said, 'El-Meyyet',
+          1905-7, 1926-31.</item>example text[BIBL_END] <item n="3">Said Ahmed Said, 1908-26, the
+          most gifted foreman who ever worked for the
+              expedition.</item>
+            <pb xml:id="p.ix" n="ix" />
+            <[QUOTE_START]item n="4">Husein Aleo, 1931-3.</item>[QUOTE_END]
+          [CIT_START]some example text<item n="5">Duwy Mahmud [CIT_END]Ahmed, 1933-5.</item>
+          </list>
+					<lb /> The last two
+          reises kept the high standard set by Said Ahmed Said. Duwy Mahmud Ahmed was loaned to the
+          University of Chicago Expedition working at Megiddo and was succeeded as reis by his
+          cousin Mohammed Said Ahmed.</p>
+      </div>
+    </front>
+    <bo[BIBL_START]dy>
+      <div type="textpart" n="6" subtype="section">
+        <pb xml:id="p.89" n="89" />
+        <p>
+          <figure xml:id="[BIBL_END]fig.22" n="2002.14.0028">
+            <head>Fig. 22. Shaft type 4: plan and section of shaft G 2110 A</head>
+          </figure>
+        </p>
+      </div>
+    </body>
+  </text>
+</TEI>

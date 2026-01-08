@@ -1,5 +1,6 @@
 # Data files (large JSONL files)
 cit_data/*
+old_files/
 
 # Python
 __pycache__/

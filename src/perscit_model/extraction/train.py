@@ -425,7 +425,7 @@ def train(
         # Conditional overrides
         "eval_strategy": "epoch" if val_path else "no",
         "load_best_model_at_end": True if val_path else False,
-        "metric_for_best_model": "f1" if val_path else None,
+        "metric_for_best_model": "eval_f1" if val_path else None,
     }
     # Only update if value is not None
     for key, value in cli_overrides.items():

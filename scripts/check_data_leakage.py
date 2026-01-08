@@ -15,7 +15,7 @@ import json
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Tuple
 
 try:
     from difflib import SequenceMatcher
@@ -53,6 +53,8 @@ def load_jsonl_contexts(file_path: Path) -> List[Tuple[str, str, int]]:
             try:
                 data = json.loads(line)
                 xml_context = data.get("xml_context", "")
+                if xml_context == "":
+                    xml_context = data.get("window_text", "")
                 filename = data.get("filename", "unknown")
                 contexts.append((xml_context, filename, i))
             except json.JSONDecodeError as e:
@@ -61,7 +63,7 @@ def load_jsonl_contexts(file_path: Path) -> List[Tuple[str, str, int]]:
 
 
 def check_exact_duplicates(
-    splits: Dict[str, List[Tuple[str, str, int]]]
+    splits: Dict[str, List[Tuple[str, str, int]]],
 ) -> Dict[Tuple[str, str], List[str]]:
     """
     Check for exact duplicate xml_contexts across splits.
@@ -84,7 +86,7 @@ def check_exact_duplicates(
         if len(splits_with_context) > 1:
             # This context appears in multiple splits
             for i, (split1, _, _) in enumerate(occurrences):
-                for split2, _, _ in occurrences[i+1:]:
+                for split2, _, _ in occurrences[i + 1 :]:
                     if split1 != split2:
                         key = tuple(sorted([split1, split2]))
                         cross_split_duplicates[key].append(xml_context)
@@ -93,8 +95,7 @@ def check_exact_duplicates(
 
 
 def check_fuzzy_similarity(
-    splits: Dict[str, List[Tuple[str, str, int]]],
-    threshold: float = 0.9
+    splits: Dict[str, List[Tuple[str, str, int]]], threshold: float = 0.9
 ) -> List[Dict]:
     """
     Check for highly similar (but not identical) xml_contexts across splits.
@@ -114,7 +115,7 @@ def check_fuzzy_similarity(
 
     # Compare each pair of splits
     for i, split1 in enumerate(split_names):
-        for split2 in split_names[i+1:]:
+        for split2 in split_names[i + 1 :]:
             print(f"  Comparing {split1} vs {split2}...", end="\r")
 
             contexts1 = splits[split1]
@@ -123,13 +124,18 @@ def check_fuzzy_similarity(
             # Sample if too large (for performance)
             max_comparisons = 100000  # Reduced from 10M to 100k for speed
             if len(contexts1) * len(contexts2) > max_comparisons:
-                print(f"\n  Warning: {split1} and {split2} are large. Sampling for performance...")
+                print(
+                    f"\n  Warning: {split1} and {split2} are large. Sampling for performance..."
+                )
                 # Sample proportionally
                 import random
-                sample_size = int(max_comparisons ** 0.5)  # e.g., sqrt(100k) = 316
+
+                sample_size = int(max_comparisons**0.5)  # e.g., sqrt(100k) = 316
                 contexts1 = random.sample(contexts1, min(sample_size, len(contexts1)))
                 contexts2 = random.sample(contexts2, min(sample_size, len(contexts2)))
-                print(f"  Sampled to {len(contexts1)} x {len(contexts2)} = {len(contexts1) * len(contexts2)} comparisons")
+                print(
+                    f"  Sampled to {len(contexts1)} x {len(contexts2)} = {len(contexts1) * len(contexts2)} comparisons"
+                )
 
             # Compare all pairs with progress bar
             if tqdm:
@@ -137,7 +143,7 @@ def check_fuzzy_similarity(
                     contexts1,
                     desc=f"  {split1} vs {split2}",
                     unit=" examples",
-                    leave=False
+                    leave=False,
                 )
             else:
                 iterator = contexts1
@@ -152,17 +158,19 @@ def check_fuzzy_similarity(
                     if ctx1 != ctx2:  # Skip exact matches (already found)
                         sim = similarity_ratio(ctx1, ctx2)
                         if sim >= threshold:
-                            findings.append({
-                                "split1": split1,
-                                "split2": split2,
-                                "similarity": sim,
-                                "context1_preview": ctx1[:200],
-                                "context2_preview": ctx2[:200],
-                                "file1": file1,
-                                "file2": file2,
-                                "line1": line1,
-                                "line2": line2,
-                            })
+                            findings.append(
+                                {
+                                    "split1": split1,
+                                    "split2": split2,
+                                    "similarity": sim,
+                                    "context1_preview": ctx1[:200],
+                                    "context2_preview": ctx2[:200],
+                                    "file1": file1,
+                                    "file2": file2,
+                                    "line1": line1,
+                                    "line2": line2,
+                                }
+                            )
 
     print(" " * 80, end="\r")  # Clear progress line
     return findings
@@ -256,7 +264,9 @@ def main():
                 print(f"     Context 1: {finding['context1_preview']}...")
                 print(f"     Context 2: {finding['context2_preview']}...")
         else:
-            print(f"\n✅ No similar contexts found above {args.similarity_threshold} threshold")
+            print(
+                f"\n✅ No similar contexts found above {args.similarity_threshold} threshold"
+            )
     else:
         print("\nSkipping fuzzy similarity check (--skip-fuzzy)")
 
