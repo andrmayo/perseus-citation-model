@@ -118,7 +118,7 @@ class CitationTagger:
             logger.warning(
                 f"No encoding declaration found for {xml_path.name}, defaulting to utf-8"
             )
-        xml_content = xml_path.read_text(encoding="encoding")
+        xml_content = xml_path.read_text(encoding=file_encoding)
         if remove_existing_citations:
             xml_content = evaluate.strip_xml_tags(xml_content)
 
