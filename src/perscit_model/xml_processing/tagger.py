@@ -145,7 +145,7 @@ class CitationTagger:
                 suffix=".tmp",
             ) as f:
                 temp_path = Path(f.name)
-                labels = self._get_labels(input_ids, attention_mask, offset_mapping)
+                labels = self._get_labels(input_ids, attention_mask)
 
                 # NOTE: offset_mapping is the only way to construct a minimally modified version
                 # of the original text
