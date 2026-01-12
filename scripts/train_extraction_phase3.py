@@ -1,0 +1,120 @@
+#!/usr/bin/env python
+
+import logging
+from datetime import datetime
+from pathlib import Path
+
+from perscit_model.extraction.train import train_pipeline
+
+PHASE_3_PARTITION_DIR = Path(__file__).parent.parent / "model_data/extraction/phase_3"
+PHASE_3_SRC_PATH = Path(__file__).parent.parent / "cit_data/xml_files/window_data.jsonl"
+PHASE_2_MODEL = (
+    Path(__file__).parent.parent
+    / "outputs/models/curriculum_learning/extraction_phase_2"
+)
+
+
+log_dir = Path(__file__).parent.parent / "outputs" / "logs" / "extraction"
+log_dir.mkdir(parents=True, exist_ok=True)
+log_path = log_dir / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+
+# Configure logging to both file and console
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# File handler - timestamped log file
+file_handler = logging.FileHandler(log_path)
+file_handler.setLevel(logging.INFO)
+
+# Console handler - stdout
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+# Format for both handlers
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+# Add both handlers to root logger
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+
+if __name__ == "__main__":
+    logging.info(
+        "Starting Phase 3 training (full documents with random citation retention)..."
+    )
+
+    train_pipeline(
+        data_dir=PHASE_3_PARTITION_DIR,
+        src_path=PHASE_3_SRC_PATH,
+        pretrained_model_path=PHASE_2_MODEL,
+        tag_retention_prob=0.4,
+    )
+
+# train_pipeline should run as intendended without arguments;
+# but see below for overriding defaults, esp. as regards hyperparameters
+# and resume_from_checkpoint
+
+# def train(
+#    train_path: Path | str,
+#    val_path: Path | str | None = None,
+#    test_path: Path | str | None = None,
+#    output_dir: Path | str | None = None,
+#    config_path: Path | str = DEFAULT_CONFIG,
+#    resume_from_checkpoint: Path | str | None = None,
+#    auto_resume: bool = False,
+#    learning_rate: float | None = None,
+#    num_epochs: int | None = None,
+#    batch_size: int | None = None,
+#    warmup_steps: int | None = None,
+#    weight_decay: float | None = None,
+#    early_stopping_patience: int | None = None,
+#    seed: int | None = None,
+#
+# ) -> Trainer:
+#    """
+#    Train citation extraction model.
+#
+#    Args:
+#        train_path: path to training JSONL file
+#        val_path: path to validation JSONL file, if applicable
+#        test_path: path to testing JSONL file, if applicable
+#        output_dir: directory to save model checkpoints (reads from config if None)
+#        config_path: path to YAML config file (default: configs/extraction/baseline.yaml)
+#        resume_from_checkpoint: optional checkpoint to resume from
+#        auto_resume: automatically resume from last checkpoint, defaults to false
+#        learning_rate: learning rate for AdamW optimizer
+#        num_epochs: number of training epoch
+#        batch_size: training batch size per device
+#        warmup_steps: number of warmup steps for learning rate scheduler
+#        weight_decay: weight decay for regularization
+#        early_stopping_patience: patience for early stopping in epochs
+#        seed: random seed for reproducible experiments (reads from config if None)
+#        tag_retention_prob: float giving probability of retaining citation tag, None for 0.0
+#    Returns:
+#        Trained Trainer object
+#    """
+#    # Load config first to get defaults
+#    training_config = TrainingConfig.from_yaml(config_path)
+#
+#
+# def train_pipeline(
+#    data_dir: Path | str | None = None,
+#    config_path: Path | str = DEFAULT_CONFIG,
+#    **kwargs,
+# ) -> Trainer:
+#    """
+#    High-level pipeline for training citation extraction model.
+#
+#    This function handles data discovery, logging setup, and calls train().
+#
+#    Args:
+#        data_dir: Directory that contains (or will contain) train.jsonl, val.jsonl, test.jsonl
+#            If None, looks in model_data/ directory in project root
+#        config_path: Path to training config YAML
+#        src_path: Defaults to Path to file with 512-token windows from XML files in jsonl format
+#        **kwargs: additional arguments passed to train(), most relevant is probably resume_from_checkpoint, which expect path to weight for checkpoint
+#
+#    Returns:
+#        Trained Trainer object
+#    """

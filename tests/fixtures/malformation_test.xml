@@ -88,7 +88,7 @@
               expedition.</item>
             <pb xml:id="p.ix" n="ix" />
             <[QUOTE_START]item n="4">Husein Aleo, 1931-3.</item>[QUOTE_END]
-          [CIT_START]some example text<item n="5">Duwy Mahmud [CIT_END]Ahmed, 1933-5.</item>
+          [BIBL_START]some example text<item n="5">Duwy Mahmud [BIBL_END]Ahmed, 1933-5.</item>
           </list>
 					<lb /> The last two
           reises kept the high standard set by Said Ahmed Said. Duwy Mahmud Ahmed was loaned to the

@@ -30,14 +30,12 @@ class TestGenerateBioLabels:
         mock_tok.sep_token_id = 2
         mock_tok.pad_token_id = 1
 
-        # Mock special token conversions
+        # Mock special token conversions (CIT tokens removed - not supported)
         special_token_map = {
             "[BIBL_START]": 100,
             "[BIBL_END]": 101,
             "[QUOTE_START]": 102,
             "[QUOTE_END]": 103,
-            "[CIT_START]": 104,
-            "[CIT_END]": 105,
         }
 
         def convert_tokens_to_ids(token):
@@ -79,21 +77,6 @@ class TestGenerateBioLabels:
             LABEL2ID["I-QUOTE"],  # Third token
             -100,               # QUOTE_END
             -100,               # SEP
-        ]
-
-    def test_simple_cit_tag(self, loader_with_special_tokens):
-        """Test basic CIT tag generates correct BIO labels."""
-        # [CLS] [CIT_START] word1 [CIT_END] [SEP]
-        input_ids = [0, 104, 10, 105, 2]
-
-        labels = loader_with_special_tokens.generate_bio_labels(input_ids)
-
-        assert labels == [
-            -100,             # CLS
-            -100,             # CIT_START
-            LABEL2ID["B-CIT"],  # First token
-            -100,             # CIT_END
-            -100,             # SEP
         ]
 
     def test_outside_tags(self, loader_with_special_tokens):
@@ -146,20 +129,20 @@ class TestGenerateBioLabels:
         ]
 
     def test_nested_tags(self, loader_with_special_tokens):
-        """Test nested tags (CIT containing BIBL)."""
-        # [CLS] [CIT_START] [BIBL_START] word1 [BIBL_END] [CIT_END] [SEP]
-        input_ids = [0, 104, 100, 10, 101, 105, 2]
+        """Test nested BIBL within QUOTE tags."""
+        # [CLS] [QUOTE_START] [BIBL_START] word1 [BIBL_END] [QUOTE_END] [SEP]
+        input_ids = [0, 102, 100, 10, 101, 103, 2]
 
         labels = loader_with_special_tokens.generate_bio_labels(input_ids)
 
         # Inner tag (BIBL) takes precedence
         assert labels == [
             -100,              # CLS
-            -100,              # CIT_START
+            -100,              # QUOTE_START
             -100,              # BIBL_START
-            LABEL2ID["B-BIBL"],   # word1 (BIBL, not CIT)
+            LABEL2ID["B-BIBL"],   # word1 (BIBL, not QUOTE)
             -100,              # BIBL_END
-            -100,              # CIT_END
+            -100,              # QUOTE_END
             -100,              # SEP
         ]
 
@@ -237,14 +220,12 @@ class TestStripSpecialTokens:
         mock_tok.sep_token_id = 2
         mock_tok.pad_token_id = 1
 
-        # Mock special token conversions
+        # Mock special token conversions (CIT tokens removed - not supported)
         special_token_map = {
             "[BIBL_START]": 100,
             "[BIBL_END]": 101,
             "[QUOTE_START]": 102,
             "[QUOTE_END]": 103,
-            "[CIT_START]": 104,
-            "[CIT_END]": 105,
         }
 
         def convert_tokens_to_ids(token):
@@ -283,24 +264,10 @@ class TestStripSpecialTokens:
         assert clean_ids == [0, 10, 11, 2]
         assert aligned_labels == [-100, LABEL2ID["B-QUOTE"], LABEL2ID["I-QUOTE"], -100]
 
-    def test_strips_cit_tokens(self, loader_with_special_tokens):
-        """Test that CIT special tokens are removed from input."""
-        # [CLS] [CIT_START] word1 [CIT_END] [SEP]
-        input_ids = [0, 104, 10, 105, 2]
-        labels = [-100, -100, LABEL2ID["B-CIT"], -100, -100]
-
-        clean_ids, aligned_labels = loader_with_special_tokens.strip_special_tokens_and_align_labels(
-            input_ids, labels
-        )
-
-        # Should remove [CIT_START] (104) and [CIT_END] (105)
-        assert clean_ids == [0, 10, 2]
-        assert aligned_labels == [-100, LABEL2ID["B-CIT"], -100]
-
     def test_strips_all_special_token_types(self, loader_with_special_tokens):
-        """Test that all citation special tokens are removed."""
-        # [CLS] [BIBL_START] w1 [BIBL_END] [QUOTE_START] w2 [QUOTE_END] [CIT_START] w3 [CIT_END] [SEP]
-        input_ids = [0, 100, 10, 101, 102, 11, 103, 104, 12, 105, 2]
+        """Test that all citation special tokens (BIBL and QUOTE) are removed."""
+        # [CLS] [BIBL_START] w1 [BIBL_END] [QUOTE_START] w2 [QUOTE_END] w3 [SEP]
+        input_ids = [0, 100, 10, 101, 102, 11, 103, 12, 2]
         labels = [
             -100,                  # CLS
             -100,                  # BIBL_START
@@ -309,9 +276,7 @@ class TestStripSpecialTokens:
             -100,                  # QUOTE_START
             LABEL2ID["B-QUOTE"],   # w2
             -100,                  # QUOTE_END
-            -100,                  # CIT_START
-            LABEL2ID["B-CIT"],     # w3
-            -100,                  # CIT_END
+            LABEL2ID["O"],         # w3
             -100,                  # SEP
         ]
 
@@ -319,13 +284,13 @@ class TestStripSpecialTokens:
             input_ids, labels
         )
 
-        # Should only have CLS, w1, w2, w3, SEP (all 6 special tokens removed)
+        # Should only have CLS, w1, w2, w3, SEP (all 4 special tokens removed)
         assert clean_ids == [0, 10, 11, 12, 2]
         assert aligned_labels == [
             -100,
             LABEL2ID["B-BIBL"],
             LABEL2ID["B-QUOTE"],
-            LABEL2ID["B-CIT"],
+            LABEL2ID["O"],
             -100,
         ]
 
@@ -550,14 +515,12 @@ max_length: 256
         # Get the loader to check special token IDs
         loader = ExtractionDataLoader()
 
-        # These are the IDs we should NOT see in input_ids
+        # These are the IDs we should NOT see in input_ids (CIT tokens removed - not supported)
         special_token_ids = {
             loader.tokenizer.convert_tokens_to_ids("[BIBL_START]"),
             loader.tokenizer.convert_tokens_to_ids("[BIBL_END]"),
             loader.tokenizer.convert_tokens_to_ids("[QUOTE_START]"),
             loader.tokenizer.convert_tokens_to_ids("[QUOTE_END]"),
-            loader.tokenizer.convert_tokens_to_ids("[CIT_START]"),
-            loader.tokenizer.convert_tokens_to_ids("[CIT_END]"),
         }
 
         # Check that none of the special tokens appear in input_ids

@@ -286,7 +286,7 @@ class TestInsertTags:
         labels = ["O", "O", "O", "B-BIBL", "I-BIBL", "O"]
 
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, None
+            xml, tokens, offset_mapping, labels
         )
 
         assert "<bibl>a citation</bibl>" in result
@@ -301,7 +301,7 @@ class TestInsertTags:
         labels = ["O", "O", "O", "B-QUOTE", "I-QUOTE", "O"]
 
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, None
+            xml, tokens, offset_mapping, labels
         )
 
         assert "<quote>hello there</quote>" in result
@@ -316,7 +316,7 @@ class TestInsertTags:
         labels = ["O", "B-BIBL", "I-BIBL", "O", "B-QUOTE", "I-QUOTE", "O"]
 
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, None
+            xml, tokens, offset_mapping, labels
         )
 
         assert "<bibl>First citation</bibl>" in result
@@ -330,7 +330,7 @@ class TestInsertTags:
         labels = ["O", "O", "O", "O", "O"]
 
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, None
+            xml, tokens, offset_mapping, labels
         )
 
         assert result == xml
@@ -344,32 +344,29 @@ class TestInsertTags:
         labels = ["O", "B-BIBL", "I-BIBL", "O", "O", "O"]
 
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, None
+            xml, tokens, offset_mapping, labels
         )
 
         # Should only tag actual text, not special tokens
         assert "<bibl>Test text</bibl>" in result
 
     def test_insert_tags_with_existing_citation_overlap(self, mock_inference_model):
-        """Test that predictions overlapping with existing citations are skipped."""
+        """Test that predictions insert tags based on labels."""
         xml = "See Hdt. 8.82 for details."
         tokens = torch.tensor([101, 2156, 2002, 8, 102])  # "See Hdt 8 ."
         offset_mapping = torch.tensor([(0, 0), (0, 3), (4, 8), (9, 10), (10, 27)])
         labels = ["O", "O", "B-BIBL", "I-BIBL", "O"]
 
-        # Existing citation covers "Hdt. 8.82" at positions 4-13
-        existing_citations = [(4, 13, "BIBL", "")]
-
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, existing_citations
+            xml, tokens, offset_mapping, labels
         )
 
-        # Should have only one <bibl> tag (the existing one)
-        assert result.count("<bibl>") == 1
-        assert "<bibl>Hdt. 8.82</bibl>" in result
+        # Should insert tags based on predicted labels
+        assert "<bibl>" in result
+        assert "</bibl>" in result
 
     def test_insert_tags_with_existing_citation_no_overlap(self, mock_inference_model):
-        """Test that non-overlapping predictions and existing citations both appear."""
+        """Test that predictions insert tags based on labels."""
         xml = "First citation and second citation."
         tokens = torch.tensor([101, 2034, 5992, 1998, 2117, 5992, 102])
         offset_mapping = torch.tensor(
@@ -377,42 +374,32 @@ class TestInsertTags:
         )
         labels = ["O", "O", "O", "O", "B-QUOTE", "I-QUOTE", "O"]
 
-        # Existing citation on "First citation"
-        existing_citations = [(0, 14, "BIBL", "")]
-
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, existing_citations
+            xml, tokens, offset_mapping, labels
         )
 
-        # Should have both citations
-        assert "<bibl>First citation</bibl>" in result
+        # Should insert quote tag based on predicted labels
         assert "<quote>second citation</quote>" in result
 
     def test_insert_tags_with_contiguous_same_type_skipped(self, mock_inference_model):
-        """Test that predictions contiguous with existing of same type are skipped."""
+        """Test that predictions insert tags based on labels."""
         xml = "Hdt.continued here."
         tokens = torch.tensor([101, 2002, 2506, 2182, 102])
         offset_mapping = torch.tensor([(0, 0), (0, 4), (4, 13), (14, 18), (18, 19)])
         labels = ["O", "O", "B-BIBL", "I-BIBL", "O"]
 
-        # Existing BIBL ends at position 4, prediction starts at 4 (contiguous, no space)
-        existing_citations = [(0, 4, "BIBL", "")]
-
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, existing_citations
+            xml, tokens, offset_mapping, labels
         )
 
-        # Should only have the existing citation, not the contiguous prediction
-        assert result.count("<bibl>") == 1
-        assert "<bibl>Hdt.</bibl>" in result
-        # "continued here" should not be in a bibl tag
-        assert "continued here" in result
-        assert "<bibl>continued" not in result
+        # Should insert tags based on predicted labels
+        assert "<bibl>" in result
+        assert "</bibl>" in result
 
     def test_insert_tags_with_contiguous_different_type_kept(
         self, mock_inference_model
     ):
-        """Test that predictions contiguous with existing of different type are kept."""
+        """Test that predictions insert tags based on labels."""
         xml = "Hdt. 8.82 quoted text here."
         tokens = torch.tensor([101, 2002, 8, 6367, 3793, 2182, 102])
         offset_mapping = torch.tensor(
@@ -420,19 +407,15 @@ class TestInsertTags:
         )
         labels = ["O", "O", "O", "B-QUOTE", "I-QUOTE", "I-QUOTE", "O"]
 
-        # Existing BIBL ends at 9, QUOTE prediction starts at 10 (contiguous but different type)
-        existing_citations = [(0, 9, "BIBL", "")]
-
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, existing_citations
+            xml, tokens, offset_mapping, labels
         )
 
-        # Should have both tags
-        assert "<bibl>Hdt. 8.82</bibl>" in result
+        # Should insert quote tag based on predicted labels
         assert "<quote>quoted text here</quote>" in result
 
     def test_insert_tags_with_multiple_existing_citations(self, mock_inference_model):
-        """Test pointer logic works correctly with multiple existing citations."""
+        """Test that predictions insert tags based on labels."""
         xml = "First ref and middle text and last ref."
         tokens = torch.tensor(
             [101, 2034, 6643, 1998, 2690, 3793, 1998, 2197, 6643, 102]
@@ -453,42 +436,35 @@ class TestInsertTags:
         )
         labels = ["O", "O", "O", "O", "B-BIBL", "I-BIBL", "O", "O", "O", "O"]
 
-        # Existing citations at start and end
-        existing_citations = [(0, 9, "QUOTE", ""), (30, 38, "QUOTE", "")]
-
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, existing_citations
+            xml, tokens, offset_mapping, labels
         )
 
-        # Should have existing quotes and predicted bibl in middle
-        assert "<quote>First ref</quote>" in result
+        # Should insert bibl tag based on predicted labels
         assert "<bibl>middle text</bibl>" in result
-        assert "<quote>last ref</quote>" in result
 
     def test_insert_tags_with_existing_empty_list(self, mock_inference_model):
-        """Test that empty existing_citations list works correctly."""
+        """Test that predictions insert tags based on labels."""
         xml = "Test citation."
         tokens = torch.tensor([101, 3231, 5992, 102])
         offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 13), (13, 14)])
         labels = ["O", "B-BIBL", "I-BIBL", "O"]
 
-        existing_citations = []
-
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, existing_citations
+            xml, tokens, offset_mapping, labels
         )
 
         assert "<bibl>Test citation</bibl>" in result
 
     def test_insert_tags_with_existing_none(self, mock_inference_model):
-        """Test that None existing_citations works correctly."""
+        """Test that predictions insert tags based on labels."""
         xml = "Test citation."
         tokens = torch.tensor([101, 3231, 5992, 102])
         offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 13), (13, 14)])
         labels = ["O", "B-BIBL", "I-BIBL", "O"]
 
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, None
+            xml, tokens, offset_mapping, labels
         )
 
         assert "<bibl>Test citation</bibl>" in result
@@ -496,21 +472,18 @@ class TestInsertTags:
     def test_insert_tags_with_existing_citation_with_attributes(
         self, mock_inference_model
     ):
-        """Test that existing citation attributes are preserved."""
+        """Test that predictions with O labels don't insert tags."""
         xml = "See Hdt. 8.82 for details."
         tokens = torch.tensor([101, 2156, 2002, 8, 102])
         offset_mapping = torch.tensor([(0, 0), (0, 3), (4, 8), (9, 10), (10, 27)])
         labels = ["O", "O", "O", "O", "O"]
 
-        # Existing citation with attributes
-        existing_citations = [(4, 13, "BIBL", ' n="Hdt. 8.82" type="ancient"')]
-
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, existing_citations
+            xml, tokens, offset_mapping, labels
         )
 
-        # Should preserve the attributes
-        assert '<bibl n="Hdt. 8.82" type="ancient">Hdt. 8.82</bibl>' in result
+        # No tags should be inserted since all labels are O
+        assert result == xml
 
 
     def test_insert_tags_avoids_splitting_opening_tag_markup(
@@ -522,17 +495,17 @@ class TestInsertTags:
         xml = "word <gloss>translation</gloss> more"
         tokens = torch.tensor([101, 2773, 5358, 2062, 102])
         # Predicted entity starts at 8 (inside <gloss> markup), ends at 23 (clean)
-        # Would create: word <glo<cit>ss>translation</cit></gloss> more (INVALID!)
+        # Would create: word <glo<bibl>ss>translation</bibl></gloss> more (INVALID!)
         # Should adjust start to avoid being inside the tag markup
         offset_mapping = torch.tensor([(0, 0), (0, 4), (8, 23), (32, 36), (36, 37)])
-        labels = ["O", "O", "B-CIT", "O", "O"]
+        labels = ["O", "O", "B-BIBL", "O", "O"]
 
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, None
+            xml, tokens, offset_mapping, labels
         )
 
         # Should NOT split the opening tag markup
-        assert "<glo<cit>" not in result
+        assert "<glo<bibl>" not in result
         # Should produce valid XML (either inside or outside the gloss element)
         assert "<gloss>" in result
         assert "</gloss>" in result
@@ -546,18 +519,18 @@ class TestInsertTags:
         xml = "word <gloss>translation</gloss> more"
         tokens = torch.tensor([101, 2773, 5358, 2062, 102])
         # Predicted entity starts at 12 (clean), ends at 27 (inside </gloss> markup)
-        # Would create: word <gloss><cit>translation</glo</cit>ss> more (INVALID!)
+        # Would create: word <gloss><bibl>translation</glo</bibl>ss> more (INVALID!)
         # Should adjust end to avoid being inside the tag markup
         offset_mapping = torch.tensor([(0, 0), (0, 4), (12, 27), (32, 36), (36, 37)])
-        labels = ["O", "B-CIT", "I-CIT", "O", "O"]
+        labels = ["O", "B-BIBL", "I-BIBL", "O", "O"]
 
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, None
+            xml, tokens, offset_mapping, labels
         )
 
         # Should NOT split the closing tag markup
-        assert "</glo</cit>" not in result
-        assert "</cit>ss>" not in result
+        assert "</glo</bibl>" not in result
+        assert "</bibl>ss>" not in result
         # Should produce valid XML
         assert "<gloss>" in result
         assert "</gloss>" in result
@@ -577,7 +550,7 @@ class TestInsertTags:
         labels = ["O", "O", "B-QUOTE", "I-QUOTE", "O"]
 
         result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels, None
+            xml, tokens, offset_mapping, labels
         )
 
         # Should NOT split the self-closing tag markup

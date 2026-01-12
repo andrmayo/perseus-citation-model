@@ -2,7 +2,6 @@ import multiprocessing
 import re
 import sys
 from concurrent.futures import ProcessPoolExecutor
-from itertools import repeat
 from pathlib import Path
 from typing import Callable, cast
 
@@ -378,9 +377,7 @@ class InferenceModel:
 
             # Add the tagged entity
             tag = entity["type"].lower()
-            segments.append(
-                f"<{tag}>{xml[entity['start'] : entity['end']]}</{tag}>"
-            )
+            segments.append(f"<{tag}>{xml[entity['start'] : entity['end']]}</{tag}>")
             last_pos = entity["end"]
 
         # Add remaining text after last entity

@@ -18,6 +18,9 @@ from perscit_model.extraction.data_loader import (
 from perscit_model.shared.data_loader import DEFAULT_CONFIG
 from perscit_model.shared.training_utils import TrainingConfig
 
+# CRF layer would go here - optional performance optimization
+# from torchcrf import CRF  # pip install pytorch-crf
+
 
 def create_model(
     tokenizer: PreTrainedTokenizerBase,

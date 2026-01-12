@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='UTF-8' standalone='no'?>
-<?xml-model href="https://epidoc.stoa.org/schema/latest/tei-epidoc.rng" schematypens="http://relaxng.org/ns/structure/1.0"?><TEI>
+<?xml-model href="https://epidoc.stoa.org/schema/latest/tei-epidoc.rng" schematypens="http://relaxng.org/ns/structure/1.0"?><TEI xmlns="http://www.tei-c.org/ns/1.0">
 	<teiHeader xml:lang="eng">
 		<fileDesc>
 			<titleStmt>
@@ -741,7 +741,8 @@
 								Eur. Phoen. 1121
 								δεξιᾷ δὲ λαμπάδα | Τιτὰν Προμηθεὺς ἔφερεν
 									ὥς
-							). Cp.	Aesch. Seven 432
+							). Cp. 
+								Aesch. Seven 432
 								ἄνδρα πυρφόρον, | φλέγει δὲ λαμπάς, κ.τ.λ.
 							
 							Here also the Destroyer is imagined as <emph>armed with a deadly
@@ -1049,7 +1050,9 @@
 							connected with human affairs” would be more literal): ib. <foreign xml:lang="grc">πρὸς τὰς ξυμφορὰς καὶ τὰς γνώμας τρεπομένους,</foreign>
 							altering their views according to the <emph>events</emph>.
 								Thuc. 3.87
-								τῆς ξυμφορᾶς τῷ ἀποβάντι,	by the <emph>issue</emph> which has resulted. (3) </p>
+								τῆς ξυμφορᾶς τῷ ἀποβάντι,
+							
+							by the <emph>issue</emph> which has resulted. (3) </p>
 					</div>
 					<div type="textpart" subtype="commline" n="45">
 						<p>
@@ -1187,7 +1190,9 @@
 							securely</emph> made terms on their own account which were not for the
 							common good in view of the invasion. 
 								Thuc. 2.82
-								ἀσφαλείᾳ δὲ τὸ ἐπιβουλεύσασθαι	(where <foreign xml:lang="grc">ἀσφάλεια</foreign> is a false reading),
+								ἀσφαλείᾳ δὲ τὸ ἐπιβουλεύσασθαι
+							
+							(where <foreign xml:lang="grc">ἀσφάλεια</foreign> is a false reading),
 							to form designs <emph>in security</emph>, opp. to <foreign xml:lang="grc">τὸ ἐμπλήκτως ὀξύ,</foreign> fickle impetuosity. The
 							primary notion of <foreign xml:lang="grc">ἀσφαλής</foreign> (“not
 							slipping”) is brought out by <foreign xml:lang="grc">πεσόντες</foreign>
@@ -1479,7 +1484,8 @@
 								ἐχρησάμην.</foreign>
 						</p>
 					</div>
-					<div type="textpart" subtype="commline" n="71">	<p>
+					<div type="textpart" subtype="commline" n="71">
+						<p>
 							<app>
 								<lem xml:lang="grc" n="U">Φοίβου … ὅ τι <lb n="72"/> δρῶν … τί
 							φωνῶν</lem>
@@ -1607,7 +1613,7 @@
 							</app>
 							.<foreign xml:lang="grc">τὸ εἰκός</foreign> is <emph>a reasonable
 							estimate</emph> of the time required for the journey. 
-								Thuc. 2.73
+							<bibl>	Thuc. 2.73</bibl>
 								ἡμέρας … ἐν αἶς εἰκὸς ἦν κομισθῆναι
 									(αὐτούς),
 							 the number
@@ -1706,7 +1712,8 @@
 								ἡδὺς αὐδὲ μητρὶ δυσχερής,
 							
 							a guest welcome, not grievous, to her. In Soph.
-							Trach. 869 where <foreign xml:lang="grc">ἀηδὴς καὶ	συνωφρυωμένη</foreign> is said of one who approaches with bad news, <foreign xml:lang="grc">ἀνηδής</foreign> is not “unwelcome,” but rather
+							Trach. 869 where <foreign xml:lang="grc">ἀηδὴς καὶ
+								συνωφρυωμένη</foreign> is said of one who approaches with bad news, <foreign xml:lang="grc">ἀνηδής</foreign> is not “unwelcome,” but rather
 							“sullen,” “gloomy.” </p>
 					</div>
 					<div type="textpart" subtype="commline" n="83">
@@ -2370,7 +2377,7 @@
 						</p>
 						<p>
 							<app>
-								<lem xml:lang="grc" n="U">ἐπράσσετο …… ἔβη</lem>
+								<lem xml:lang="grc" n="U">ἐπράσσετο … ἔβη</lem>
 							</app>
 							the imperf. refers here to a <emph>continued act</emph> in past time,
 							the aor. to an act done at a definite past moment. Cp. 402 <foreign xml:lang="grc">ἐδόκεις—ἔγνως</foreign>: 432 <foreign xml:lang="grc">
@@ -2661,7 +2668,7 @@
 							
 							Prose would require a compound verb: 
 								Xen. Sym. 4.31
-								ὑπανίστανται …… θάκων.
+								ὑπανίστανται … θάκων.
 							
 						</p>
 					</div>
@@ -2703,7 +2710,8 @@
 					</div>
 					<div type="textpart" subtype="commline" n="147">
 						<p>
-							<app>	<lem xml:lang="grc" n="U">ὦ παῖδες</lem>
+							<app>
+								<lem xml:lang="grc" n="U">ὦ παῖδες</lem>
 							</app>
 							see on 142. <foreign xml:lang="grc">—καὶ δεῦρ’ ἔβημεν,</foreign> we <emph>
 							e'en</emph> came here: i.e. this was the motive of our coming in the
@@ -2866,7 +2874,8 @@
 							Triclinius explains here, “I am <emph>prostrated</emph> by dread”(<foreign xml:lang="grc">ἐκπέπληγμαι, παρ’ ὅσον οἱ ἐκπλαγέντες
 								ἔκτασιν σώματος καὶ ἀκινησίαν πάσχουσιν</foreign>: cp. 
 								Eur. Med. 585
-								ἓν γὰρ ἐκτενεῖ σ’ ἔπος)	:
+								ἓν γὰρ ἐκτενεῖ σ’ ἔπος)
+							:
 							so 
 								Soph. Phil. 858
 								ἐκτέταται νύχιος
@@ -3371,7 +3380,8 @@
 								<lem xml:lang="grc" n="U">ἀκτὰν παρὰ βώμιον</lem>
 							</app>
 							“at the steps of the altars”: 
-								Aesch. Lib. 722	ἀκτὴ χώματος,
+								Aesch. Lib. 722
+								ἀκτὴ χώματος,
 							
 							the edge of the mound: 
 								Eur. Her. 984
@@ -3481,7 +3491,8 @@
 								<lem xml:lang="grc" n="U">περιβόατον</lem>
 							</app>
 							could not mean “crying loudly”: the prose use (“famous” or “notorious” Thuc. 6.31) confirms the pass. sense here. <app>
-								<lem xml:lang="grc" n="U">ἀντιάζω</lem>	</app>,
+								<lem xml:lang="grc" n="U">ἀντιάζω</lem>
+							</app>,
 							attacking: 
 								Hdt. 4.80
 								ἠντίασάν μιν
@@ -3808,7 +3819,8 @@
 							</app>
 							the torches with which Artemis was represented, —holding one in each
 							hand (
-								Aristoph. Frogs 1362	διπύρους ἀνέχουσα λαμπάδας
+								Aristoph. Frogs 1362
+								διπύρους ἀνέχουσα λαμπάδας
 							
 							,
 								Soph. Trach. 214
@@ -4577,7 +4589,8 @@
 							</app>
 							The imperfect indic. of a verb denoting obligation(<foreign xml:lang="grc">ἔδει, χρῆν, προσῆκεν, εἰκὸς ἦν),</foreign> when
 							joined <emph>without</emph>
-							<foreign xml:lang="grc">ἄν</foreign> to an	infinitive, often implies a conditional sentence with imperfect indic.
+							<foreign xml:lang="grc">ἄν</foreign> to an
+							infinitive, often implies a conditional sentence with imperfect indic.
 							in protasis and apodosis: e.g. <foreign xml:lang="grc">οὐκ εἰκὸς ἦν ἐᾶν</foreign>
 							=<foreign xml:lang="grc">οὐκ ἂν εἰᾶτε (εἰ τὰ δέοντα ἐποιεῖτἐ,</foreign> you
 							would not (now) be neglecting it (if you did your duty): 
@@ -4733,7 +4746,8 @@
 							
 							The classical constr. with <foreign xml:lang="grc">ἐνάλλομαι,</foreign>
 							as with <foreign xml:lang="grc">ἐνθρώσκω</foreign> and <foreign xml:lang="grc">ἐμπηδάω,</foreign> is usually the dat., though <foreign xml:lang="grc">εἰς</foreign> with accus. occurs in later Greek; a
-							point urged by Deventer in his objections to this verse, which is,	however, clearly sound. </p>
+							point urged by Deventer in his objections to this verse, which is,
+							however, clearly sound. </p>
 					</div>
 					<div type="textpart" subtype="commline" n="264">
 						<p>
@@ -4939,7 +4953,8 @@
 						</p>
 					</div>
 					<div type="textpart" subtype="commline" n="275">
-						<p>	<app>
+						<p>
+							<app>
 								<lem xml:lang="grc" n="U">εὖ</lem>
 							</app>
 							cf. 
@@ -5044,7 +5059,8 @@
 							as 580, 749: Soph. OC 13,Soph. Ant. 1057,Soph. Phil. 1276,Soph.
 							Aj. 1085.<app>
 								<lem xml:lang="grc" n="U">οὐδ’ ἂν εἷς</lem>
-							</app>	:
+							</app>
+							:
 								Soph. Ant. 884
 								οὐδ’ ἂν εἷς παύσαιτ’ ἄν
 							
@@ -5243,7 +5259,8 @@
 							cp. 120. </p>
 					</div>
 					<div type="textpart" subtype="commline" n="292">
-						<p>	<app>
+						<p>
+							<app>
 								<lem xml:lang="grc" n="U">ὁδοιπόρων</lem>
 							</app>
 							the survivor had spoken of <foreign xml:lang="grc">λῃσταί,</foreign>
@@ -5578,7 +5595,8 @@
 							</app>
 							as divination by fire (see on 21), to which Teiresias resorts (Soph. Ant. 1005) when the voice of birds
 							fails him. </p>
-					</div>	<div type="textpart" subtype="commline" n="312">
+					</div>
+					<div type="textpart" subtype="commline" n="312">
 						<p>
 							<app>
 								<lem xml:lang="grc" n="U">ῥῦσαι σεαυτὸν</lem>
@@ -5790,7 +5808,8 @@
 								<lem xml:lang="grc" n="U">οὔτ’ ἔννομ’</lem>
 							</app>
 							<foreign xml:lang="grc">κ.τ.λ.·</foreign> not in conformity with usage, which
-							entitled the State to benefit by the wisdom of its <foreign xml:lang="grc">μάντις.</foreign> The king's first remonstrances are	gentle. </p>
+							entitled the State to benefit by the wisdom of its <foreign xml:lang="grc">μάντις.</foreign> The king's first remonstrances are
+							gentle. </p>
 					</div>
 					<div type="textpart" subtype="commline" n="323">
 						<p>
@@ -5889,7 +5908,8 @@
 							γιγνομένους, ἵνα μὴ παμπονήρως εἴπωμεν,
 							
 							“becoming very strange persons, —not to use a more unqualified epithet”: 
-								Plat. Rep. 507d	οὐδ’ ἄλλαις πολλαῖς, ἵνα μὴ εἴπω ὅτι οὐδεμιᾷ,
+								Plat. Rep. 507d
+								οὐδ’ ἄλλαις πολλαῖς, ἵνα μὴ εἴπω ὅτι οὐδεμιᾷ,
 							τοιούτου προσδεῖ οὐδενός,
 							 i.e.
 							few, —not to say none: 
@@ -6053,7 +6073,8 @@
 							remember, of course, that the adj. could not literally mean “not
 							finishing.” Possibly it is borrowed from the colloquial vocabulary of
 							the day: the tone is like that of the Latin <foreign xml:lang="lat">
-							odiosus</foreign>. </p>	</div>
+							odiosus</foreign>. </p>
+					</div>
 					<div type="textpart" subtype="commline" n="337">
 						<p>
 							<app>
@@ -6500,7 +6521,8 @@
 						<p>
 							<app>
 								<lem xml:lang="grc" n="U">προὐτρέψω</lem>
-							</app>	the midd., as 1446: but the act., Soph. Ant.
+							</app>
+							the midd., as 1446: but the act., Soph. Ant.
 								270,Soph. El. 1193. </p>
 					</div>
 					<div type="textpart" subtype="commline" n="360">
@@ -6581,7 +6603,9 @@
 							
 							:
 								Soph. El. 301
-								ὁ πάντ’ ἄναλκις οὗτος, ἡ πᾶσα βλάβη.	Cp. 336 <foreign xml:lang="grc">ἀτελεύτητος.</foreign>
+								ὁ πάντ’ ἄναλκις οὗτος, ἡ πᾶσα βλάβη.
+							
+							Cp. 336 <foreign xml:lang="grc">ἀτελεύτητος.</foreign>
 						</p>
 					</div>
 					<div type="textpart" subtype="commline" n="364">
@@ -6937,7 +6961,7 @@
 								Plat. Rep. 364b
 							),
 							or in public places, for predictions or expiatory rites: Maximus Tyrius
-							19. 3 <foreign xml:lang="grc">τῶν ἐν τοῖς κύκλοις ἀγειρόντων …… ,
+							19. 3 <foreign xml:lang="grc">τῶν ἐν τοῖς κύκλοις ἀγειρόντων … ,
 								οἳ δυοῖν ὀβολοῖν τῷ προστυχόντι ἀποθεσπίζουσιν.</foreign>
 						</p>
 						<p>
@@ -7036,7 +7060,8 @@
 							<app>
 								<lem xml:lang="grc" n="U">ἣν οἴτ’ ἀπ’ οἰωνῶν ἔχων οὔτ’ ἐκ θεῶν του
 							γνωτὸν</lem>
-							</app> (<foreign xml:lang="grc">	ἔχων)</foreign>
+							</app> (<foreign xml:lang="grc">
+							ἔχων)</foreign>
 							<app>
 								<lem xml:lang="grc" n="U">προὐφάνης</lem>
 							</app>:
@@ -7832,7 +7857,8 @@
 							(“most urgent”) <foreign xml:lang="grc">ταῦθ’ ἥκω φράσων.</foreign>
 						</p>
 					</div>
-					<div type="textpart" subtype="commline" n="446">	<p>
+					<div type="textpart" subtype="commline" n="446">
+						<p>
 							<app>
 								<lem xml:lang="grc" n="U">ἀλγύνοις</lem>
 							</app>
@@ -8567,7 +8593,8 @@
 							with <app>
 								<lem xml:lang="grc" n="U">βασάνῳ</lem>
 							</app>:
-							“testing <emph>on</emph> the touchstone whereof” —“using which(<foreign xml:lang="grc">νεῖκος</foreign>) as a test.” [;Receiving my <foreign xml:lang="grc">βασανίζων,</foreign> Kennedy (ed. 1885) replaces the	word <foreign xml:lang="grc">βασάνῳ</foreign> by <foreign xml:lang="grc">
+							“testing <emph>on</emph> the touchstone whereof” —“using which(<foreign xml:lang="grc">νεῖκος</foreign>) as a test.” [;Receiving my <foreign xml:lang="grc">βασανίζων,</foreign> Kennedy (ed. 1885) replaces the
+							word <foreign xml:lang="grc">βασάνῳ</foreign> by <foreign xml:lang="grc">
 							πιθανῶς.</foreign>]; To Brunck's <foreign xml:lang="grc">βασάνῳ
 							χρησάμενος</foreign> (
 								Plat. Laws 946c
@@ -8575,7 +8602,7 @@
 							)
 							the objections are (1) the aorist part. where we need the pres., (2) the
 							tame and prosaic phrase. Wolff writes, <foreign xml:lang="grc">πρὸς ὅτου
-							δή, βασάνῳ <πίστιν/>: Wecklein and Mekler (in his
+							δή, βασάνῳ &lt;πίστιν ἔχων&gt;</foreign>: Wecklein and Mekler (in his
 							recension of Dindorf's ed., Teubner, 1885) indicate a lacuna, <foreign xml:lang="grc">¯˘˘¯</foreign>, after <foreign xml:lang="grc">βασάνῳ.</foreign>
 							Two other courses of emendation are possible: (i) To supply after <foreign xml:lang="grc">ἔμαθον</foreign> something to express the informant,
 							as <foreign xml:lang="grc">τινος ἀστῶν</foreign> or, <foreign xml:lang="grc">προφέροντος,</foreign> when <foreign xml:lang="grc">πρὸς
@@ -8596,8 +8623,8 @@
 								Soph. Ant. 51
 								πρὸς αὐτοφώρων ἀμπλακημάτων· πρός
 							
-							denoting the source back to which the act can be traced. </foreign>
-					</p>
+							denoting the source back to which the act can be traced. </p>
+					</div>
 					<div type="textpart" subtype="commline" n="495">
 						<p>
 							<app>
@@ -8792,7 +8819,8 @@
 							. </p>
 						<p>
 							<app>
-								<lem xml:lang="grc" n="U">ἁδύπολις</lem>	</app>
+								<lem xml:lang="grc" n="U">ἁδύπολις</lem>
+							</app>
 							in the sense of <foreign xml:lang="grc">ἁνδάνων τῇ πόλει</foreign> (cp. 
 								Pind. N. 8.38
 								ἀστοῖς ἀδών
@@ -8929,7 +8957,8 @@
 							
 						</p>
 						<p>
-							<app>	<lem xml:lang="grc" n="U">φέρον</lem>
+							<app>
+								<lem xml:lang="grc" n="U">φέρον</lem>
 							</app>
 							519 <foreign xml:lang="grc">φέροντι</foreign>: 520 <foreign xml:lang="grc">φέρει</foreign>: such repetitions are not rare in the
 							best Greek and Latin writers. Cp. 158, 159 <foreign xml:lang="grc">
@@ -9054,7 +9083,8 @@
 							had been omitted, <app>
 								<lem xml:lang="grc" n="U">τε</lem>
 							</app>
-							was naturally changed to <app>	<lem xml:lang="grc" n="U">δέ</lem>
+							was naturally changed to <app>
+								<lem xml:lang="grc" n="U">δέ</lem>
 							</app>.
 							The place of <app>
 								<lem xml:lang="grc" n="U">τε</lem>
@@ -9457,7 +9487,10 @@
 							</app>
 							
 								Aesch. Seven 100
-								ἀκούετ’ ἢ οὐκ ἀκούετ’ ἀσπίδων κτύπον;	Hom. Od. 4.682
+								ἀκούετ’ ἢ οὐκ ἀκούετ’ ἀσπίδων κτύπον;
+							
+							
+								Hom. Od. 4.682
 								ἢ εἰπέμεναι δμωῇσιν Ὀδυσσῆος θείοιο.
 							
 							Such “synizesis” points to the rapidity and ease of ancient Greek
@@ -9837,7 +9870,8 @@
 							<app>
 								<lem xml:lang="grc" n="U">πᾶσι χαίρω</lem>
 							</app>
-							“all men wish me joy”: lit. “I rejoice with the consent of all men”: all	are content that I should rejoice. Cp. 
+							“all men wish me joy”: lit. “I rejoice with the consent of all men”: all
+							are content that I should rejoice. Cp. 
 								Soph. OC 1446
 								ἀνάξιαι γὰρ πᾶσίν ἐστε δυστυχεῖν,
 							
@@ -9870,7 +9904,8 @@
 						<p>
 							<app>
 								<lem xml:lang="grc" n="U">ἐκκαλοῦσι</lem>
-							</app>	Those who have a boon to ask of Oed. come to the palace (or to Creon's
+							</app>
+							Those who have a boon to ask of Oed. come to the palace (or to Creon's
 							own house, see on 637) and send in a message, praying Creon to speak
 							with them. Seneca's Creon says (<title>Oed.</title> 687) <foreign xml:lang="lat">Solutus onere regio, regni bonis Fruor, domusque
 							civium
@@ -10228,7 +10263,8 @@
 								<lem xml:lang="grc" n="U">στέγας</lem>
 							</app>
 							only, referring to the house of Creon, who is not supposed to be an
-							inmate of the palace: see 515, 533. </p>	</div>
+							inmate of the palace: see 515, 533. </p>
+					</div>
 					<div type="textpart" subtype="commline" n="638">
 						<p>
 							<app>
@@ -10287,7 +10323,8 @@
 							peculiarly bold way, 
 								Soph. Aj. 1129
 								μή νυν ἀτίμα θεοὺς θεοῖς σεσωμένος
-							:	but at least it moves the strongest suspicion. <app>
+							:
+							but at least it moves the strongest suspicion. <app>
 								<lem xml:lang="grc" n="U">ἀποκρίνας</lem>
 							</app>,
 							on the other hand, seems genuine. <foreign xml:lang="grc">ἀποκρίνειν</foreign>
@@ -10452,7 +10489,8 @@
 							.
 							As regards the form of <foreign xml:lang="grc">εἰκάθω,</foreign> Curtius
 							(<title>Verb</title> 11. 345, Eng. tr. 505), discussing presents in <foreign xml:lang="grc">‐θω</foreign> and past tenses in <foreign xml:lang="grc">‐θον</foreign> from vowel stems, warns us against
-							“looking for anything particularly aoristic in the <foreign xml:lang="grc">θ</foreign>” of these verbs. In Greek usage, he holds,	“a decidedly aoristic force” for such forms as <foreign xml:lang="grc">
+							“looking for anything particularly aoristic in the <foreign xml:lang="grc">θ</foreign>” of these verbs. In Greek usage, he holds,
+							“a decidedly aoristic force” for such forms as <foreign xml:lang="grc">
 							σχεθεῖν</foreign> and <foreign xml:lang="grc">εἰκαθεῖν</foreign>“ never
 							established itself”: and he justly cites Soph.
 							El. 1014 as a place where <foreign xml:lang="grc">εἰκαθεῖν</foreign>
@@ -10867,7 +10905,8 @@
 								<lem xml:lang="grc" n="U">προπονουμένας</lem>
 							</app>
 							“<emph>already</emph> troubled,” not, “troubled exceedingly.” <foreign xml:lang="grc">προπονεῖν</foreign> always = to suffer <emph>before</emph>,
-							or <emph>for</emph>:	Luc. Iupp. Trag. 40
+							or <emph>for</emph>:
+								Luc. Iupp. Trag. 40
 								Ἀθηνᾶ Ἄρην καταγωνίζεται, ἄτε καὶ
 							προπεπονηκότα
 									οἶμαι ἐκ τοῦ τραύματος,
@@ -11351,7 +11390,8 @@
 								κελεύσαντος ἐκείνου διασχεῖν τὸ πλῆθος,
 							
 							to keep the crowd off. </p>
-						<p>	<app>
+						<p>
+							<app>
 								<lem xml:lang="grc" n="U">βλάστας</lem>
 							</app>
 							cannot be acc. of respect (“as to the birth”), because <app>
@@ -11420,7 +11460,8 @@
 								Soph. Phil. 1302
 								ἄνδρα πολέμιον.
 							
-							Verse 967 below is exceptional. </p>	</div>
+							Verse 967 below is exceptional. </p>
+					</div>
 					<div type="textpart" subtype="commline" n="720">
 						<p>
 							<app>
@@ -11727,7 +11768,9 @@
 							
 							,
 								πείρινς
-								Hom. Il. 24.190	). </p>
+								Hom. Il. 24.190
+							
+							). </p>
 					</div>
 					<div type="textpart" subtype="commline" n="756">
 						<p>Cp. 118. <app>
@@ -11985,7 +12028,8 @@
 					<div type="textpart" subtype="commline" n="776">
 						<p>
 							<app>
-								<lem xml:lang="grc" n="U">πρίν μοι … ἐπέστη</lem>	</app>
+								<lem xml:lang="grc" n="U">πρίν μοι … ἐπέστη</lem>
+							</app>
 							(1) <foreign xml:lang="grc">πρίν</foreign> with <emph>infin.</emph> =
 							our “before,” whether the sentence is affirmative or negative: <foreign xml:lang="grc">ἦλθε πρὶν κληθῆναι, οὐκ ἦλθε πρὶν κληθῆναι.</foreign>
 							(2) <foreign xml:lang="grc">πρίν</foreign> with a <emph>finite</emph>
@@ -12201,7 +12245,8 @@
 								<lem xml:lang="grc" n="U">προὐφάνη λέγων</lem>
 							</app>
 							would mean, “came into view, telling”: cp. above, 395, and 
-								Soph. El. 1285	νῦν δ’ ἔχω σεπροὐφάνης δὲ | φιλτάταν ἔχων
+								Soph. El. 1285
+								νῦν δ’ ἔχω σεπροὐφάνης δὲ | φιλτάταν ἔχων
 							πρόσοψιν.
 							 It might apply to
 							the sudden appearance of a beacon (cp. 
@@ -12571,7 +12616,8 @@
 								<lem xml:lang="grc" n="U">ἔξεστι</lem>
 							</app>,
 							absolutely: not <emph>is it lawful that</emph> anyone should speak to
-							him. </p>	<p>
+							him. </p>
+						<p>
 							<app>
 								<lem xml:lang="grc" n="U">ὠθεῖν δ’</lem>
 							</app>
@@ -13114,7 +13160,8 @@
 								<lem xml:lang="grc" n="U">νόμοι</lem>
 							</app>
 							was less trite for a Greek of the age of Sophocles than for us: cp. 
-								Plat. Laws 793a	τὰ καλούμενα ὑπὸ τῶν πολλῶν ἄγραφα νόμιμα—οὔτε
+								Plat. Laws 793a
+								τὰ καλούμενα ὑπὸ τῶν πολλῶν ἄγραφα νόμιμα—οὔτε
 							νόμους δεῖ προσαγορεύειν αὐτὰ οὔτε ἄρρητα ἐᾶν.
 							
 						</p>
@@ -13383,7 +13430,8 @@
 							Cp. 
 								Plat. Laws 716a
 								ὁ δέ τις ἐξαρθεὶς ὑπὸ μεγαλαυχίας ἢ χρήμασιν
-							ἐπαιρόμενος ἢ τιμαῖς ἢ καὶ σώματος εὐμορφίᾳ, ἅμα νεότητι καὶ ἀνοίᾳ	φλέγεται τὴν ψυχὴν μεθ’ ὕβρεως … μετὰ δὲ χρόνον οὐ πολὺν ὑποσχὼν
+							ἐπαιρόμενος ἢ τιμαῖς ἢ καὶ σώματος εὐμορφίᾳ, ἅμα νεότητι καὶ ἀνοίᾳ
+							φλέγεται τὴν ψυχὴν μεθ’ ὕβρεως … μετὰ δὲ χρόνον οὐ πολὺν ὑποσχὼν
 									τιμωρίαν τῇ δίκῃ ἑαυτόν τε καὶ οἷκον καὶ πόλιν ἄρδην ἀνάστατον
 							ἐποίησε.
 							
@@ -13420,7 +13468,8 @@
 								<lem xml:lang="grc" n="U">πάλαισμα</lem>
 							</app>
 							cp. 
-								Isoc. Letter 7.7	τοῖς καλῶς τὰς πόλεις τὰς αὑτῶν διοικοῦσιν
+								Isoc. Letter 7.7
+								τοῖς καλῶς τὰς πόλεις τὰς αὑτῶν διοικοῦσιν
 							ἁμιλλητέον καὶ πειρατέον διενεγκεῖν αὐτῶν.
 							
 							
@@ -13656,7 +13705,8 @@
 								Aesch. Ag. 995
 								σπλάγχνα δ’ οὔτι ματᾴζει,
 							
-							my heart does not vainly forebode. The reason for writing <foreign xml:lang="grc">ματᾴζων,</foreign> not <foreign xml:lang="grc">	ματάζων,</foreign> is that the form <foreign xml:lang="grc">ματαΐζω</foreign>
+							my heart does not vainly forebode. The reason for writing <foreign xml:lang="grc">ματᾴζων,</foreign> not <foreign xml:lang="grc">
+							ματάζων,</foreign> is that the form <foreign xml:lang="grc">ματαΐζω</foreign>
 							is well attested (Her., Josephus, Hesych., Herodian): while there is no
 							similar evidence for <foreign xml:lang="grc">ματάζω,</foreign> though the
 							latter form <emph>might</emph> have existed, being related to a stem <foreign xml:lang="grc">ματα
@@ -13819,7 +13869,8 @@
 								Pind. O. 6.70
 								Ζηνὸς ἐπ’ ἀκροτάτῳ βωμῷ … χρηστήριον θέσθαι
 							κέλευσεν
-							 (Apollo): <foreign xml:lang="grc">| ἐξ οὗ πολύκλειτον καθ’ Ἕλλανας	γένος Ἰαμιδᾶν.</foreign>
+							 (Apollo): <foreign xml:lang="grc">| ἐξ οὗ πολύκλειτον καθ’ Ἕλλανας
+								γένος Ἰαμιδᾶν.</foreign>
 						</p>
 					</div>
 					<div type="textpart" subtype="commline" n="901">
@@ -14014,7 +14065,8 @@
 					</div>
 					<div type="textpart" subtype="commline" n="917">
 						<p>
-							<app>	<lem xml:lang="grc" n="U">τοῦ λέγοντος</lem>
+							<app>
+								<lem xml:lang="grc" n="U">τοῦ λέγοντος</lem>
 							</app>
 							
 								Plat. Gorg. 508d
@@ -14276,7 +14328,8 @@
 							</app>
 							=<foreign xml:lang="grc">ἐν κράτει</foreign>: cp. <foreign xml:lang="grc">ἔναρχος</foreign> =<foreign xml:lang="grc">ἐν
 								ἀρχῇ,</foreign> in office, Appian Civ. War 1.14. </p>
-					</div>	<div type="textpart" subtype="commline" n="943">
+					</div>
+					<div type="textpart" subtype="commline" n="943">
 						<p>A defective verse, <app>
 								<lem xml:lang="grc" n="U">πῶς εἶπας; ἦ τέθνηκε πόλυβος;</lem>
 							</app>
@@ -14595,7 +14648,8 @@
 								μεμπτός,
 							
 							blaming: 
-								Eur. Hec. 1117	ὕποπτος,
+								Eur. Hec. 1117
+								ὕποπτος,
 							
 							suspecting. Cp. note on <foreign xml:lang="grc">ἀτλητῶν</foreign> 515. </p>
 						<p>
@@ -14714,7 +14768,8 @@
 								<lem xml:lang="grc" n="U">τύχη</lem>
 							</app>
 							does not here involve denial of a divine order in the government of the
-							world, but only of man's power to comprehend or foresee its course. Cp.	Thuc. 5.104
+							world, but only of man's power to comprehend or foresee its course. Cp. 
+								Thuc. 5.104
 								πιστεύομεν τῇ μὲν τύχῃ ἐκ τοῦ θείου μὴ
 							ἐλασσώσεσθαι.
 							
@@ -14922,7 +14977,8 @@
 							poet. form, found once in Pindar (who has also <foreign xml:lang="grc">
 							θεμιτός),</foreign> and twice in the lyrics of Aesch. Had we <foreign xml:lang="grc">ἄλλῳ,</foreign> the subject of <app>
 								<lem xml:lang="grc" n="U">θεμιτὸν</lem>
-							</app>	would be <app>
+							</app>
+							would be <app>
 								<lem xml:lang="grc" n="U">μάντευμα</lem>
 							</app>:
 							the accus. <app>
@@ -15136,7 +15192,8 @@
 							</app>
 							as justice would prompt, “justly.” <app>
 								<lem xml:lang="grc" n="U">πρὸς</lem>
-							</app>	prop. = “from the quarter of,” then “on the side of ”: 
+							</app>
+							prop. = “from the quarter of,” then “on the side of ”: 
 								Thuc. 3.59
 								οὐ πρὸς τῆς ὑμετέρας δόξης … τάδε,
 							
@@ -15192,7 +15249,8 @@
 							found the babe on <emph>Cithaeron</emph>.<app>
 								<lem xml:lang="grc" n="U">ἐμπολήσας</lem>
 							</app>:
-							cp. the story of Eumaeus (Hom. Od.	15.403-483) who, when a babe, was carried off by Phoenician
+							cp. the story of Eumaeus (Hom. Od.
+								15.403-483) who, when a babe, was carried off by Phoenician
 							merchants from the wealthy house of his father in the isle Syria, and
 							sold to Laertes in Ithaca: the Phoenician nurse says to the merchants, <foreign xml:lang="grc">τόν κεν ἄγοιμ’ ἐπὶ νηός, ὁ δ’ ὑμῖν μυρίον ὦνον |
 							ἄλφοι,
@@ -15426,7 +15484,8 @@
 								<lem xml:lang="grc" n="U">ὁ καιρὸς</lem>
 							</app>
 							for the art., cp. 
-								Plat. Axioch. 364b	νῦν ὁ καιρὸς ἐνδείξασθαι τὴν ἀεὶ θρυλουμένην
+								Plat. Axioch. 364b
+								νῦν ὁ καιρὸς ἐνδείξασθαι τὴν ἀεὶ θρυλουμένην
 							πρὸς
 									σοῦ σοφίαν. —
 							
@@ -15442,7 +15501,8 @@
 								τῶν δυναμένων λέγειν ἢ παιδεύειν ἡ πόλις ἡμῶν
 							δοκεῖ γεγενῆσθαι διδάσκαλος,
 							
-							to be the <emph>established</emph> teacher. </p>	</div>
+							to be the <emph>established</emph> teacher. </p>
+					</div>
 					<div type="textpart" subtype="commline" n="1051">
 						<p>Supply <foreign xml:lang="grc">ἐννέπειν (αὐτόν),</foreign> not <foreign xml:lang="grc">ἐννέπει.</foreign> The form <app>
 								<lem xml:lang="grc" n="U">οἶμαι</lem>
@@ -15555,7 +15615,8 @@
 								Hdt. 1.37
 								ἀμείνω ἐστὶ ταῦτα οὕτω ποιεύμενα
 							
-							:	Dem. 4.34
+							:
+								Dem. 4.34
 								οἴκοι μένων, βελτίων
 							
 							:
@@ -15754,7 +15815,8 @@
 							
 							<app>
 								<lem xml:lang="grc" n="U">ὡς</lem>
-							</app>	is restrictive; cp. 1118: 
+							</app>
+							is restrictive; cp. 1118: 
 								Thuc. 4.84
 								ἦν δὲ οὐδὲ ἀδύνατος, ὡς Λακεδαιμόνιος,
 									εἰπεῖν
@@ -15961,7 +16023,8 @@
 								<lem xml:lang="grc" n="U">πανσέληνον</lem>
 							</app>
 							(sc. <foreign xml:lang="grc">ὥραν)</foreign>:
-								Hdt. 2.47	ἐν τῇ αὐτῇ πανσελήνῳ.
+								Hdt. 2.47
+								ἐν τῇ αὐτῇ πανσελήνῳ.
 							
 							For the accus., cp. on 1138 <foreign xml:lang="grc">χειμῶνα.</foreign>
 							The meaning is: “At the next full-moon we will hold a joyous <foreign xml:lang="grc">παννυχίς,</foreign> visiting the temples with <foreign xml:lang="grc">χοροί</foreign> (Soph.
@@ -16002,7 +16065,8 @@
 							at once yields a clear construction and a pointed sense. “Thou shalt not
 							fail to know that <emph>Oedipus</emph> honours thee both as native to
 							him, and as his nurse and mother (i.e., not merely as belonging to his
-							Theban fatherland, but as the very spot which sheltered his infancy);	and that thou art celebrated in choral song by <emph>us</emph> (<app>
+							Theban fatherland, but as the very spot which sheltered his infancy);
+							and that thou art celebrated in choral song by <emph>us</emph> (<app>
 								<lem xml:lang="grc" n="U">πρὸς</lem>
 							</app>
 							<foreign xml:lang="grc">ἡμῶν),</foreign> seeing that thou art well-pleasing
@@ -16017,7 +16081,8 @@
 								<lem xml:lang="grc" n="U">αὔξειν</lem>
 							</app>,
 							not merely by praises, but by the fact of his birth in the
-							neighbourhood: as Pindar says of a victor in the games,	Pind. O. 5.4
+							neighbourhood: as Pindar says of a victor in the games, 
+								Pind. O. 5.4
 								τὰν σὰν πόλιν αὔξων,
 							
 							
@@ -16053,7 +16118,9 @@
 							</app>
 							to be celebrated with choral song: 
 								Soph. Ant. 1153
-								πάννυχοι | χορεύουσι τὸν ταμίαν Ἴακχον.	(Not “danced over, ” like 
+								πάννυχοι | χορεύουσι τὸν ταμίαν Ἴακχον.
+							
+							(Not “danced over, ” like 
 								ἀείδετο τέμενος,
 								Pind. O. 11.76
 							
@@ -16297,7 +16364,8 @@
 							of <foreign xml:lang="grc">Ἑλικωνιάδων</foreign> (MSS.), ad Eur. Orest. 614. Since <app>
 								<lem xml:lang="grc" n="U">αἶς</lem>
 							</app>
-							answers to <foreign xml:lang="grc">δέ</foreign> in 1097, Nauck	conjectured <foreign xml:lang="grc">Ἑλικῶνος αἶσι.</foreign> But this is
+							answers to <foreign xml:lang="grc">δέ</foreign> in 1097, Nauck
+							conjectured <foreign xml:lang="grc">Ἑλικῶνος αἶσι.</foreign> But this is
 							unnecessary, as the metrical place allows this syllable to be either
 							short or long: so in 
 								Soph. El. 486
@@ -16529,7 +16597,8 @@
 								μανίᾳ ξύναυλος
 								Soph. Aj. 611
 							):
-							here, after <app>	<lem xml:lang="grc" n="U">πρὸς</lem>
+							here, after <app>
+								<lem xml:lang="grc" n="U">πρὸς</lem>
 							</app>,
 							merely: “having thy haunts ”: an instance of that redundant government
 							which Soph. often admits: below 1205 <foreign xml:lang="grc">ἐν
@@ -16946,7 +17015,8 @@
 					<div type="textpart" subtype="commline" n="1158">
 						<p>
 							<app>
-								<lem xml:lang="grc" n="U">εἰς τόδ’</lem>	</app>
+								<lem xml:lang="grc" n="U">εἰς τόδ’</lem>
+							</app>
 							=<foreign xml:lang="grc">εἰς τὸ ὀλέσθαι</foreign>:
 								Soph. Aj. 1365
 								αὐτὸς ἐνθάδ’ ἴξομαι,
@@ -17097,7 +17167,9 @@
 							<emph>must
 							have</emph> come true (cp. 1011), the opt. as 
 								Plat. Gorg. 502d
-								οὐκοῦν ἡ ῥητορικὴ δημηγορία ἂν εἴη	:
+								οὐκοῦν ἡ ῥητορικὴ δημηγορία ἂν εἴη
+							
+							:
 								Hdt. 1.2
 								εἴησαν δ’ ἂν οὗτοι Κρῆτες
 							
@@ -17176,7 +17248,8 @@
 								<lem xml:lang="grc" n="U">ἐναριθμῶ</lem>
 							</app>
 							only here, and (midd.) in 
-								Eur. Orest. 623	εἰ τοὐμὸν ἔχθος ἐναριθμεῖ κῆδός τ’ ἐμόν
+								Eur. Orest. 623
+								εἰ τοὐμὸν ἔχθος ἐναριθμεῖ κῆδός τ’ ἐμόν
 							
 							=<foreign xml:lang="grc">ἐν ἀριθμῷ ποιεῖ,</foreign> if you make of
 							account. </p>
@@ -17246,7 +17319,8 @@
 								<lem xml:lang="grc" n="U">τὸν σόν</lem>
 							</app>,
 							which is decidedly more forcible, nothing can be objected except the
-							threefold repetition; but this is certainly no reason for rejecting it	in a lyric utterance of passionate feeling. </p>
+							threefold repetition; but this is certainly no reason for rejecting it
+							in a lyric utterance of passionate feeling. </p>
 					</div>
 					<div type="textpart" subtype="commline" n="1195">
 						<p>
@@ -17637,7 +17711,8 @@
 							answers to a dactyl <foreign xml:lang="grc">(ὡς περι‐,</foreign> my <foreign xml:lang="grc">ὥσπερ ἰ‐),</foreign> whether we keep the traditional
 							text, or adopt my conjecture, or that of Wecklein or of Burges; though
 							Wecklein, by a strange oversight, has noticed this objection as if it
-							were peculiar to my conjecture. Wunder's <foreign xml:lang="grc">πόσει</foreign>	for <foreign xml:lang="grc">πατρὶ</foreign> in 1209 would restore exact
+							were peculiar to my conjecture. Wunder's <foreign xml:lang="grc">πόσει</foreign>
+							for <foreign xml:lang="grc">πατρὶ</foreign> in 1209 would restore exact
 							correspondence, and may be right; but I rather prefer, with Heinrich
 							Schmidt (<title>Compositionslehre</title> 64), to regard the <foreign xml:lang="grc">ὡς</foreign> as an “irrational syllable ”: see
 							Metrical Analysis. </p>
@@ -17782,7 +17857,8 @@
 							purification, ” so as to purify. </p>
 						<p>
 							<app>
-								<lem xml:lang="grc" n="U">νίψαι</lem>	</app>
+								<lem xml:lang="grc" n="U">νίψαι</lem>
+							</app>
 							
 								Eur. IT 1191
 								ἁγνοῖς καθαρμοῖς πρῶτά νιν νίψαι θέλω.
@@ -17912,7 +17988,8 @@
 							the forms in <foreign xml:lang="grc">εσαν</foreign> (as <foreign xml:lang="grc">ᾔδεσαν)</foreign>
 							<emph>alone</emph> have good
 							authority. </p>
-					</div>	<div type="textpart" subtype="commline" n="1235">
+					</div>
+					<div type="textpart" subtype="commline" n="1235">
 						<p>
 							<app>
 								<lem xml:lang="grc" n="U">θεῖον</lem>
@@ -17968,7 +18045,8 @@
 						<p>We are to suppose that, when she rushed from the scene in her passionate
 							despair (1072), Iocasta passed through the central door of the palace <foreign xml:lang="grc">(βασίλειος θύρἀ</foreign> into the <foreign xml:lang="grc">θυρών,</foreign> a short passage or hall, opening on
 							the court <foreign xml:lang="grc">(αὐλή)</foreign> surrounded by a
-							colonnade <foreign xml:lang="grc">(περίστυλον).</foreign> Across this	court she hurried to the <foreign xml:lang="grc">θάλαμος</foreign> or
+							colonnade <foreign xml:lang="grc">(περίστυλον).</foreign> Across this
+							court she hurried to the <foreign xml:lang="grc">θάλαμος</foreign> or
 							bedroom of the master and mistress of the house, and shut herself into
 							it. Presently Oedipus burst into the court with that cry of which we
 							heard the first accents (1182) as he fled from the scene (<app>
@@ -17983,7 +18061,8 @@
 							They follow. There they find Iocasta dead, and see Oedipus blind
 							himself. </p>
 					</div>
-					<div type="textpart" subtype="commline" n="1242">	<p>
+					<div type="textpart" subtype="commline" n="1242">
+						<p>
 							<app>
 								<lem xml:lang="grc" n="U">εὐθὺ</lem>
 							</app>
@@ -18107,7 +18186,7 @@
 							ἄρα</foreign> and the <foreign xml:lang="grc">ἐ</foreign> of <foreign xml:lang="grc">ἔνερθε</foreign> could not always withstand; that
 							there were, in short, pairs of forms then in use, one with the augment
 							and one without … The omission of the syllabic augment in Homer was
-							purely a matter of choice …… Post-Homeric poetry adopts the power of
+							purely a matter of choice … Post-Homeric poetry adopts the power of
 							dispensing with the syllabic augment as an inheritance from its
 							predecessor, and makes the greater use of it in proportion as it is
 							removed from the language of ordinary life. Hence it is that, as is
@@ -18691,7 +18770,8 @@
 						<p>
 							<app>
 								<lem xml:lang="grc" n="U">ὅσα … προσέκυρσα</lem>
-							</app>	I know no other example of an accus. after <foreign xml:lang="grc">
+							</app>
+							I know no other example of an accus. after <foreign xml:lang="grc">
 							προσκυρεῖν,</foreign> which usu. takes the dat.: but the compound can at
 							least claim the privilege of the simple <foreign xml:lang="grc">κυρεῖν.</foreign>
 							The neut. plur. accus. of <emph>pronouns</emph> and <emph>adjectives</emph>
@@ -18755,7 +18835,8 @@
 							may sometimes be observed in the imagery (lyric especially) of
 							Sophocles: the <emph>image</emph> is slightly crossed and blurred by the
 							interposing notion of the <emph>thing</emph>: as here he was thinking,
-							“what suffering <emph>could have gone further</emph>?” See on <foreign xml:lang="grc">δῑ αἰθέρα τεκνωθέντες,</foreign> 866. With Aeschylus,	on the other hand, the obscurity of imagery seldom or never arises from
+							“what suffering <emph>could have gone further</emph>?” See on <foreign xml:lang="grc">δῑ αἰθέρα τεκνωθέντες,</foreign> 866. With Aeschylus,
+							on the other hand, the obscurity of imagery seldom or never arises from
 							indistinctness of outline, but more often from an opposite cause, —the
 							vividly objective conception of abstract notions. </p>
 					</div>
@@ -19202,7 +19283,8 @@
 								μέγα | θάλλοντες.
 							
 							The antistrophic words are <foreign xml:lang="grc">αὐτὸς ἔφυν
-								τάλας</foreign> (1363). <app>	<lem xml:lang="grc" n="U">ὀλέθριον</lem>
+								τάλας</foreign> (1363). <app>
+								<lem xml:lang="grc" n="U">ὀλέθριον</lem>
 							</app>,
 							pass., “lost, ” as 
 								Soph. Trach. 878
@@ -20514,7 +20596,8 @@
 							mockery, but with grave sorrow. The phrase <app>
 								<lem xml:lang="grc" n="U">πίστιν φέροις</lem>
 							</app>
-							as = <foreign xml:lang="grc">πιστεύοις</foreign> (	Soph. El. 735
+							as = <foreign xml:lang="grc">πιστεύοις</foreign> (
+								Soph. El. 735
 								τῷ τέλει πίστιν φέρων)
 							
 							prob. = “<emph>render</emph> belief” (as a tribute due), cp. <foreign xml:lang="grc">φόρον, δασμόν, χρήματα φέρειν,</foreign> and the like
@@ -20720,7 +20803,8 @@
 								Plat. Prot. 336b
 								ὁμολογεῖ
 							
-							<app>	<lem xml:lang="grc" n="U">μὴ</lem>
+							<app>
+								<lem xml:lang="grc" n="U">μὴ</lem>
 							</app>
 							<foreign xml:lang="grc">μετεῖναί οἱ μακρολογίας,</foreign> but 
 								Plat. Apol. 17a
@@ -20992,7 +21076,7 @@
 					<div type="textpart" subtype="commline" n="1472">
 						<p>
 							<app>
-								<lem xml:lang="grc" n="U">τοῖν …… φίλοιν | δακρυρροούντοιν</lem>
+								<lem xml:lang="grc" n="U">τοῖν … φίλοιν | δακρυρροούντοιν</lem>
 							</app>
 							Cp. 
 								Soph. Ant. 381
@@ -21328,7 +21412,8 @@
 					</div>
 					<div type="textpart" subtype="commline" n="1494">
 						<p>
-							<app>	<lem xml:lang="grc" n="U">λαμβάνων</lem>
+							<app>
+								<lem xml:lang="grc" n="U">λαμβάνων</lem>
 							</app>
 							instead of the infin. with <foreign xml:lang="grc">παραρρίψει,</foreign>
 							as 
@@ -21626,7 +21711,8 @@
 						</p>
 					</div>
 					<div type="textpart" subtype="commline" n="1519">
-						<p>	<app>
+						<p>
+							<app>
 								<lem xml:lang="grc" n="U">ἀλλὰ θεοῖς γ’</lem>
 							</app>
 							i.e. “Nay, the <emph>gods</emph>, who hate me, will not be displeased
@@ -21856,6 +21942,6 @@
 					</div>
 				</div>
 			</div>
-		</div>
-	</body>
-</text></TEI>
+		</body>
+	</text>
+</TEI>

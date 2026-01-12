@@ -61,7 +61,7 @@ class TestExtractionPipeline:
         """Test that ExtractionDataLoader adds special tokens to tokenizer."""
         loader = ExtractionDataLoader()
 
-        # Should have added 6 special tokens
+        # Should have added 4 special tokens (BIBL and QUOTE - CIT removed)
         assert loader.special_tokens == SPECIAL_TOKENS
 
     def test_extraction_data_loader_processes_real_data(self, sample_data_path, mock_tokenizer):
@@ -126,15 +126,19 @@ class TestExtractionPipeline:
                 f"Label/input length mismatch at example {i}"
 
     def test_pipeline_handles_nested_tags(self):
-        """Test that pipeline handles nested citation tags."""
+        """Test that pipeline strips CIT tags but preserves BIBL and QUOTE."""
         xml = '<cit><bibl>Hdt. 1.1</bibl><quote>some text</quote></cit>'
 
         # Parse XML
         processed = ExtractionDataLoader.parse_xml_to_bio(xml)
 
-        # Should have all special tokens
-        assert "[CIT_START]" in processed
-        assert "[CIT_END]" in processed
+        # CIT tags should be completely stripped
+        assert "[CIT_START]" not in processed
+        assert "[CIT_END]" not in processed
+        assert "<cit>" not in processed
+        assert "</cit>" not in processed
+
+        # BIBL and QUOTE should be converted to special tokens
         assert "[BIBL_START]" in processed
         assert "[BIBL_END]" in processed
         assert "[QUOTE_START]" in processed
@@ -225,13 +229,13 @@ class TestExtractionPipeline:
 
     def test_special_tokens_are_consistent(self):
         """Test that special tokens are consistently defined."""
-        # Should have 6 special tokens (3 types × 2 directions)
-        assert len(SPECIAL_TOKENS) == 6
+        # Should have 4 special tokens (2 types × 2 directions - CIT removed)
+        assert len(SPECIAL_TOKENS) == 4
 
-        # Should have START and END for each type
+        # Should have START and END for BIBL and QUOTE (CIT not supported)
         assert "[BIBL_START]" in SPECIAL_TOKENS
         assert "[BIBL_END]" in SPECIAL_TOKENS
         assert "[QUOTE_START]" in SPECIAL_TOKENS
         assert "[QUOTE_END]" in SPECIAL_TOKENS
-        assert "[CIT_START]" in SPECIAL_TOKENS
-        assert "[CIT_END]" in SPECIAL_TOKENS
+        assert "[CIT_START]" not in SPECIAL_TOKENS
+        assert "[CIT_END]" not in SPECIAL_TOKENS

@@ -1,9 +1,10 @@
 import logging
 import re
 import tempfile
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Iterable
+from typing import cast, Iterable
 
 from lxml import etree
 from lxml.etree import _Element, XMLSyntaxError
@@ -71,6 +72,7 @@ class CitationTagger:
         self,
         xml_path: str | Path | Iterable[str] | Iterable[Path],
         overwrite: bool = True,
+        remove_existing_citations: bool = False,
     ):
         """
         Process XML files to insert citation tags based on model predictions.
@@ -91,6 +93,7 @@ class CitationTagger:
                     self.process_xml_file,
                     path if isinstance(path, Path) else Path(path),
                     overwrite,
+                    remove_existing_citations,
                 )
                 for path in xml_path
             ]
@@ -122,8 +125,19 @@ class CitationTagger:
         if remove_existing_citations:
             xml_content = evaluate.strip_xml_tags(xml_content)
 
+        # Extract preamble (XML declaration, processing instructions) to preserve
+        preamble, xml_content = CitationTagger._extract_preamble(xml_content)
+
         # IMPORTANT: Use truncation=False and padding=False to tokenize the entire XML file
         # The sliding window approach will handle chunking
+
+        # Suppress tokenizer warning about byte fallback in fast tokenizers
+        warnings.filterwarnings(
+            "ignore",
+            message=".*byte fallback.*",
+            category=UserWarning,
+            module="transformers.convert_slow_tokenizer",
+        )
         encoding: transformers.BatchEncoding = self.loader.tokenizer(
             xml_content,
             truncation=False,
@@ -220,11 +234,23 @@ class CitationTagger:
                     assert last_label != "O"
                     new_xml.append(f"[{last_label}_END]")
 
-                new_xml = self._fix_malformed_predictions(new_xml)
+                new_xml = CitationTagger._fix_malformed_predictions(new_xml)
 
                 new_xml = "".join(new_xml)
+                tree = etree.fromstring(new_xml.encode(file_encoding))
+                # Wrap adjacent bibl and quote pairs in cit
+                for tag_name in ("bibl", "quote"):
+                    # cast is safe because xpath returns a list for node seelection queries
+                    for elem in cast(
+                        list[_Element], tree.xpath(f".//*[local-name()='{tag_name}']")
+                    ):
+                        self._handle_cit_elt(elem)
 
-                temp_path.write_text(new_xml)
+                # encoding="unicode" gives str, ="utf-8" gives bytes
+                new_xml = etree.tostring(tree, encoding="unicode", method="xml")
+                new_xml = preamble + new_xml
+
+                temp_path.write_text(new_xml, encoding=file_encoding)
             # atomic replace of original xml file
             if overwrite:
                 temp_path.replace(xml_path)
@@ -426,7 +452,6 @@ class CitationTagger:
         # Step 4: convert prediction indices to label strings
         return [get_pred_label(pred) for pred in final_predictions]
 
-    # TODO: Add unit test for this
     @staticmethod
     def _handle_tag_stack(
         new_tag: str,
@@ -541,7 +566,6 @@ class CitationTagger:
             tag_stack.append((new_tag, len(prior_xml_pieces)))
             return tag_stack, prior_xml_pieces, True
 
-    # TODO: Add unit test for this
     @staticmethod
     def _fix_malformed_predictions(xml: list[str] | str) -> list[str]:
         if isinstance(xml, list):

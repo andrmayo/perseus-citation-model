@@ -2,6 +2,7 @@
 
 import logging
 import multiprocessing
+import random
 import re
 import warnings
 from pathlib import Path
@@ -13,18 +14,18 @@ from perscit_model.shared.data_loader import SharedDataLoader
 
 logger = logging.getLogger(__name__)
 
-SPECIAL_TAGS = ["<bibl>", "</bibl>", "<quote>", "</quote>", "<cit>", "</cit>"]
+SPECIAL_TAGS = ["<bibl>", "</bibl>", "<quote>", "</quote>"]
 SPECIAL_TOKENS = [
     "[BIBL_START]",
     "[BIBL_END]",
     "[QUOTE_START]",
     "[QUOTE_END]",
-    "[CIT_START]",
-    "[CIT_END]",
 ]
 
 # BIO label definitions
-BIO_LABELS = ["O", "B-BIBL", "I-BIBL", "B-QUOTE", "I-QUOTE", "B-CIT", "I-CIT"]
+# Note: CIT tags are not included - they are structural wrappers in source XML
+# that should not be predicted by the model
+BIO_LABELS = ["O", "B-BIBL", "I-BIBL", "B-QUOTE", "I-QUOTE"]
 LABEL2ID = {label: idx for idx, label in enumerate(BIO_LABELS)}
 ID2LABEL = {idx: label for idx, label in enumerate(BIO_LABELS)}
 
@@ -55,7 +56,9 @@ class ExtractionDataLoader(SharedDataLoader):
             elif "window_text" in item:
                 content = item["window_text"]
             else:
-                raise KeyError(f"Expected 'xml_context' or 'window_text' field in data, got: {list(item.keys())}")
+                raise KeyError(
+                    f"Expected 'xml_context' or 'window_text' field in data, got: {list(item.keys())}"
+                )
 
             yield {
                 "xml_context": content,
@@ -63,21 +66,31 @@ class ExtractionDataLoader(SharedDataLoader):
             }
 
     @classmethod
-    def parse_xml_to_bio(cls, xml_context: str) -> str:
+    def parse_xml_to_bio(
+        cls, xml_content: str, tag_retention_prob: float | None = None
+    ) -> str:
         """
         Replace XML citation tags with special tokens for DeBERTa tokenizer.
 
         Pipeline:
-        1. Remove attributes from citation tags (bibl, quote, cit) using regex
-        2. Replace citation tags with special tokens
+        1. Strip all <cit> tags (they are structural wrappers we don't predict)
+        2. If tag_retention_prob == 0.0:
+            - Strip attributes from all bibl/quote tags
+            - Convert all bibl/quote tags to special tokens
+        3. If tag_retention_prob > 0.0 (Phase 3):
+            - For each bibl/quote tag pair, randomly decide:
+              * Keep: preserve original tag WITH attributes
+              * Convert: strip attributes and replace with special tokens
 
         Converts citation tags to special tokens:
         - <bibl> → [BIBL_START]
         - </bibl> → [BIBL_END]
         - <quote> → [QUOTE_START]
         - </quote> → [QUOTE_END]
-        - <cit> → [CIT_START]
-        - </cit> → [CIT_END]
+
+        Note: <cit> tags are NOT converted - they are completely stripped from the
+        training data. CIT tags are structural wrappers in source documents that
+        should not be predicted by the model.
 
         Other tags (e.g., <title>, <author>) are preserved in the output.
 
@@ -85,34 +98,99 @@ class ExtractionDataLoader(SharedDataLoader):
         so they won't be split during tokenization. BIO labels are then generated
         in the dataset creation step based on positions relative to these markers.
 
-        Note on nested tags:
-            For nested structures like <cit><bibl>text</bibl></cit>, both sets of
-            markers will be present: [CIT_START] [BIBL_START] text [BIBL_END] [CIT_END].
-            The model learns to handle these nested structures.
-
         Note on tags orphaned in excerpting:
             This regex-based approach doesn't validate or repair XML structure, so
             orphaned tags in excerpts will be converted directly to markers. This may
             result in unpaired markers (e.g., [BIBL_START] without [BIBL_END]), which
-            the model must learn to be robust to.
+            the model must learn to be robust to. The only kind of invalid XML this
+            method handles properly is XML malformed by excerpting.
 
         Args:
             xml_context: XML snippet (may be malformed from excerpting)
+            tag_retention_prob: Probability (0.0-1.0) that a bibl/quote tag pair is kept
+                as-is with attributes instead of converted to special tokens.
+                Default 0.0 means convert all tags (Phase 1 & 2 behavior).
 
         Returns:
-            - processed_text: Text with citation tags replaced by special tokens
+            - processed_text: Text with bibl/quote tags replaced by special tokens
+                (and some tags optionally kept as-is if tag_retention_prob > 0).
+                All <cit> tags are stripped.
         """
+        if tag_retention_prob is None:
+            tag_retention_prob = 0.0
 
-        # Remove attributes from citation tags using regex
-        # Match opening tags with attributes: <bibl ...> or <quote ...> or <cit ...>
-        # Replace with just the tag name: <bibl> or <quote> or <cit>
-        cleaned_xml = re.sub(r"<(bibl|quote|cit)\s+[^>]*>", r"<\1>", xml_context)
+        # FIRST: Always strip all <cit> tags (with or without attributes)
+        # These are structural wrappers we never want in training data
+        xml_content = re.sub(r"<cit(?:\s+[^>]*)?>", "", xml_content)
+        xml_content = re.sub(r"</cit>", "", xml_content)
 
-        # Replace citation tags with special tokens (no extra spaces since they're registered as special tokens)
-        for tag, token in zip(SPECIAL_TAGS, SPECIAL_TOKENS):
-            cleaned_xml = cleaned_xml.replace(tag, token)
+        if tag_retention_prob == 0.0:
+            # Strip attributes from bibl/quote tags
+            cleaned_xml = re.sub(r"<(bibl|quote)\s+[^>]*>", r"<\1>", xml_content)
 
-        return cleaned_xml
+            # Replace bibl/quote tags with special tokens
+            for tag, token in zip(SPECIAL_TAGS, SPECIAL_TOKENS):
+                cleaned_xml = cleaned_xml.replace(tag, token)
+
+            return cleaned_xml
+
+        # Phase 3: Randomly keep some bibl/quote tags, convert others
+        # Note: Only processing bibl/quote now (cit already stripped above)
+        pattern = r"<(/?)(bibl|quote)(?:\s+[^>]*)?>"
+
+        tag_matches = []
+        for match in re.finditer(pattern, xml_content):
+            is_closing = bool(match.group(1))
+            tag_name = match.group(2)
+            full_tag = match.group(0)
+            tag_matches.append(
+                {
+                    "start": match.start(),
+                    "end": match.end(),
+                    "is_closing": is_closing,
+                    "tag_name": tag_name,
+                    "full_tag": full_tag,
+                    "keep": None,  # decide when we match pairs
+                }
+            )
+
+        # match opening and closing tags into pairs using a stack
+        stack = []
+        for tag_info in tag_matches:
+            if not tag_info["is_closing"]:
+                # Opening tag: make random decisions and push to stack
+                tag_info["keep"] = random.random() < tag_retention_prob
+                stack.append(tag_info)
+            else:
+                # Closing tag: find matching opening tag and use same decision
+                if stack and stack[-1]["tag_name"] == tag_info["tag_name"]:
+                    tag_info["keep"] = stack[-1]["keep"]
+                    stack.pop()
+                else:  # orphaned closing tag
+                    tag_info["keep"] = random.random() < tag_retention_prob
+
+        # Build results by replacing tags based on keep decision
+        result = []
+        last_end = 0
+        for tag_info in tag_matches:
+            prev_end, last_end = last_end, tag_info["end"]
+            if tag_info["keep"]:
+                # Keep the original tag with attributes - no replacement needed
+                result.extend(
+                    [xml_content[prev_end : tag_info["start"]], tag_info["full_tag"]]
+                )
+                continue
+            tag_name = tag_info["tag_name"]
+            is_closing = tag_info["is_closing"]
+            spec_token = (
+                f"[{tag_name.upper()}_END]"
+                if is_closing
+                else f"[{tag_name.upper()}_START]"
+            )
+            result.extend([xml_content[prev_end : tag_info["start"]], spec_token])
+        result.append(xml_content[last_end:])
+
+        return "".join(result)
 
     def generate_bio_labels(self, input_ids: list[int]) -> list[int]:
         """
@@ -137,18 +215,16 @@ class ExtractionDataLoader(SharedDataLoader):
         annotated_convert_tokens_to_ids = cast(
             Callable, self.tokenizer.convert_tokens_to_ids
         )
-        # Get special token IDs
+        # Get special token IDs (only BIBL and QUOTE - CIT tags are stripped from training data)
         special_token_ids = {
             annotated_convert_tokens_to_ids("[BIBL_START]"): ("BIBL", "start"),
             annotated_convert_tokens_to_ids("[BIBL_END]"): ("BIBL", "end"),
             annotated_convert_tokens_to_ids("[QUOTE_START]"): ("QUOTE", "start"),
             annotated_convert_tokens_to_ids("[QUOTE_END]"): ("QUOTE", "end"),
-            annotated_convert_tokens_to_ids("[CIT_START]"): ("CIT", "start"),
-            annotated_convert_tokens_to_ids("[CIT_END]"): ("CIT", "end"),
         }
 
         labels = []
-        current_tag = None  # None, "BIBL", "QUOTE", or "CIT"
+        current_tag = None  # None, "BIBL", or "QUOTE"
         first_token_of_tag = False
 
         for token_id in input_ids:
@@ -206,13 +282,12 @@ class ExtractionDataLoader(SharedDataLoader):
             Callable, self.tokenizer.convert_tokens_to_ids
         )
 
+        # Only BIBL and QUOTE special tokens (CIT tags are stripped from training data)
         special_token_ids = {
             annotated_convert_tokens_to_ids("[BIBL_START]"),
             annotated_convert_tokens_to_ids("[BIBL_END]"),
             annotated_convert_tokens_to_ids("[QUOTE_START]"),
             annotated_convert_tokens_to_ids("[QUOTE_END]"),
-            annotated_convert_tokens_to_ids("[CIT_START]"),
-            annotated_convert_tokens_to_ids("[CIT_END]"),
         }
 
         clean_input_ids = []
@@ -231,12 +306,14 @@ def create_extraction_dataset(
     jsonl_path: Path | str,
     config_path: Path | str | None = None,
     num_proc: int | None = None,
+    tag_retention_prob: float | None = None,
 ) -> Dataset:
     """
     Create a HuggingFace Dataset for BIO tag extraction.
 
     Pipeline:
     1. Parse XML and convert tags to special tokens ([BIBL_START], etc.)
+       - For Phase 3: Randomly keep some tags as-is with attributes based on tag_retention_prob
     2. Tokenize text WITH special tokens
     3. Generate BIO labels based on special token positions
     4. STRIP special tokens from input (so model doesn't see the answer)
@@ -252,6 +329,9 @@ def create_extraction_dataset(
         num_proc: Optional number of processes for parallel tokenization
         (1 = sequential),
         defaults to number of threads available on system
+        tag_retention_prob: Probability (0.0-1.0) of keeping citation tags as-is
+        instead of converting to special tokens. Default 0.0 (Phase 1 & 2 behavior).
+        For Phase 3, use 0.3-0.5 to teach model to handle existing citations.
 
     Returns:
         HuggingFace Dataset with tokenized inputs and BIO labels (no special tokens in input)
@@ -288,7 +368,9 @@ def create_extraction_dataset(
         extraction_entries = [
             {
                 "xml_string": loader.tokenize_text(
-                    ExtractionDataLoader.parse_xml_to_bio(entry_content)
+                    ExtractionDataLoader.parse_xml_to_bio(
+                        entry_content, tag_retention_prob=tag_retention_prob
+                    )
                 ),
                 "filename": entry_filename,
             }

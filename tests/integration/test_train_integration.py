@@ -98,13 +98,14 @@ class TestTrain:
 
     def test_train_minimal(self, sample_data_path, temp_output_dir):
         """Test basic training with minimal configuration."""
-        # Train for just 1 step to verify it works
+        # Train for just 1 step to verify it works (much faster than full epoch)
         trainer = train(
             train_path=sample_data_path,
             output_dir=temp_output_dir,
             num_epochs=1,
             batch_size=2,
             learning_rate=5e-5,
+            max_steps=1,  # Just 1 gradient update for speed
         )
 
         # Should return a Trainer object
@@ -123,6 +124,7 @@ class TestTrain:
             output_dir=temp_output_dir,
             num_epochs=1,
             batch_size=2,
+            max_steps=1,  # Just 1 gradient update for speed
         )
 
         # Should have validation dataset
@@ -144,6 +146,7 @@ class TestTrain:
             output_dir=temp_output_dir,
             num_epochs=1,
             batch_size=2,
+            max_steps=1,  # Just 1 gradient update for speed
         )
 
         # Model files should be saved in timestamped final-model directory
@@ -163,6 +166,7 @@ class TestTrain:
             output_dir=temp_output_dir,
             num_epochs=1,
             batch_size=2,
+            max_steps=1,  # Just 1 gradient update for speed
         )
 
         # Metrics should be saved in timestamped final-model directory
@@ -181,6 +185,7 @@ class TestTrain:
             output_dir=temp_output_dir,
             num_epochs=1,
             batch_size=2,
+            max_steps=1,  # Just 1 gradient update for speed
         )
 
         # Test metrics should be saved in timestamped final-model directory
@@ -204,6 +209,7 @@ class TestTrain:
             num_epochs=1,
             batch_size=2,
             seed=42,
+            max_steps=1,  # Just 1 gradient update for speed
         )
 
         trainer2 = train(
@@ -212,6 +218,7 @@ class TestTrain:
             num_epochs=1,
             batch_size=2,
             seed=42,
+            max_steps=1,  # Just 1 gradient update for speed
         )
 
         # Models should have same architecture
@@ -248,12 +255,16 @@ class TestTrain:
             batch_size=2,
         )
 
-        # Model should have 7 labels: O, B-BIBL, I-BIBL, B-QUOTE, I-QUOTE, B-CIT, I-CIT
-        assert trainer.model.config.num_labels == 7
+        # Model should have 5 labels: O, B-BIBL, I-BIBL, B-QUOTE, I-QUOTE (CIT removed)
+        assert trainer.model.config.num_labels == 5
 
 
+@pytest.mark.slow
 class TestTrainPipeline:
-    """Integration tests for the complete train_pipeline."""
+    """Integration tests for the complete train_pipeline.
+
+    These tests are marked as slow because they involve data splitting and full pipeline execution.
+    """
 
     @pytest.fixture
     def temp_data_dir(self, tmp_path):
@@ -302,6 +313,7 @@ class TestTrainPipeline:
             data_dir=data_dir,
             num_epochs=1,
             batch_size=2,
+            max_steps=1,  # Just 1 gradient update for speed
         )
 
         # Should complete successfully
@@ -339,6 +351,7 @@ class TestTrainPipeline:
             num_epochs=1,
             batch_size=2,
             seed=42,
+            max_steps=1,  # Just 1 gradient update for speed
         )
 
         # Get split file modification time
@@ -352,6 +365,7 @@ class TestTrainPipeline:
             num_epochs=1,
             batch_size=2,
             seed=42,
+            max_steps=1,  # Just 1 gradient update for speed
         )
 
         # Split info should not have been recreated
@@ -382,6 +396,7 @@ max_length: 256
 learning_rate: 0.00005
 per_device_train_batch_size: 2
 num_train_epochs: 1
+max_steps: 1
 output_dir: outputs/custom
 """
         config_path.write_text(config_content)

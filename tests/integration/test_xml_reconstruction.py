@@ -6,7 +6,6 @@ import pytest
 class TestXMLReconstruction:
     """Test that XML is properly reconstructed after inference."""
 
-    @pytest.mark.slow
     def test_xml_with_processing_instruction(self, real_tagger, tmp_path):
         """Test XML with processing instructions (like xml-model)."""
         xml_content = """<?xml version='1.0' encoding='UTF-8' standalone='no'?>
@@ -24,7 +23,7 @@ class TestXMLReconstruction:
 
         # This should not raise an error
         real_tagger.process_xml_file(
-            input_file, preserve_existing=False, overwrite=True
+            input_file, remove_existing_citations=True, overwrite=True
         )
 
         # Verify output is valid XML
@@ -32,7 +31,6 @@ class TestXMLReconstruction:
         assert len(result) > 0
         assert "<?xml" in result
 
-    @pytest.mark.slow
     def test_xml_with_multiple_namespaces(self, real_tagger, tmp_path):
         """Test XML with namespace declarations."""
         xml_content = """<?xml version='1.0' encoding='UTF-8'?>
@@ -51,14 +49,13 @@ class TestXMLReconstruction:
 
         # This should not raise an error
         real_tagger.process_xml_file(
-            input_file, preserve_existing=False, overwrite=True
+            input_file, remove_existing_citations=True, overwrite=True
         )
 
         # Verify output is valid XML
         result = input_file.read_text(encoding="utf-8")
         assert len(result) > 0
 
-    @pytest.mark.slow
     def test_xml_with_unclosed_tags_from_window_splitting(self, real_tagger, tmp_path):
         """Test that window splitting doesn't create unclosed tags."""
         # Create a long XML document that will require multiple windows
@@ -83,7 +80,7 @@ class TestXMLReconstruction:
 
         # This should not raise an error about mismatched tags
         real_tagger.process_xml_file(
-            input_file, preserve_existing=False, overwrite=True
+            input_file, remove_existing_citations=True, overwrite=True
         )
 
         # Verify output is valid XML

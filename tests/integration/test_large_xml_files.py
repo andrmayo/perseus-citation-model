@@ -21,7 +21,9 @@ class TestLargeXMLFiles:
         test_file.write_text(xml_file.read_text(), encoding="utf-8")
 
         # This should not raise an XML parsing error
-        real_tagger.process_xml_file(test_file, preserve_existing=True, overwrite=True)
+        real_tagger.process_xml_file(
+            test_file, remove_existing_citations=False, overwrite=True
+        )
 
         # Verify output
         result = test_file.read_text(encoding="utf-8")
@@ -40,7 +42,9 @@ class TestLargeXMLFiles:
         test_file.write_text(xml_file.read_text(), encoding="utf-8")
 
         # This should not raise an XML parsing error
-        real_tagger.process_xml_file(test_file, preserve_existing=True, overwrite=True)
+        real_tagger.process_xml_file(
+            test_file, remove_existing_citations=False, overwrite=True
+        )
 
         # Verify output
         result = test_file.read_text(encoding="utf-8")

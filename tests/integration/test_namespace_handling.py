@@ -8,7 +8,6 @@ import pytest
 class TestNamespaceHandling:
     """Test that namespaces and special attributes are preserved."""
 
-    @pytest.mark.slow
     def test_xml_namespace_attributes(self, real_tagger, tmp_path):
         """Test that xml:lang and other namespace attributes are preserved."""
         xml_content = """<?xml version='1.0' encoding='UTF-8'?>
@@ -31,7 +30,7 @@ class TestNamespaceHandling:
         input_file.write_text(xml_content, encoding="utf-8")
 
         # This should not lose the xml: prefix
-        real_tagger.process_xml_file(input_file, preserve_existing=False, overwrite=True)
+        real_tagger.process_xml_file(input_file, remove_existing_citations=True, overwrite=True)
 
         # Verify output preserves namespace attributes
         result = input_file.read_text(encoding="utf-8")

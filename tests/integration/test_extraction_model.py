@@ -101,30 +101,26 @@ class TestCreateModel:
 class TestLoadModelFromCheckpoint:
     """Test suite for load_model_from_checkpoint function."""
 
-    def test_load_from_checkpoint_returns_model(self, loader, tmp_path):
-        """Test that loading from checkpoint returns a model."""
-        # Create and save a model
+    @pytest.fixture(scope="class")
+    def saved_checkpoint(self, loader, tmp_path_factory):
+        """Create and save a model once for all tests in this class."""
         model = create_model(loader.tokenizer)
-
-        checkpoint_path = tmp_path / "test_checkpoint"
+        checkpoint_path = tmp_path_factory.mktemp("checkpoints") / "test_checkpoint"
         model.save_pretrained(checkpoint_path)
+        return checkpoint_path
 
+    def test_load_from_checkpoint_returns_model(self, saved_checkpoint):
+        """Test that loading from checkpoint returns a model."""
         # Load from checkpoint
-        loaded_model = load_model_from_checkpoint(checkpoint_path)
+        loaded_model = load_model_from_checkpoint(saved_checkpoint)
 
         assert loaded_model is not None
         assert loaded_model.config.num_labels == len(BIO_LABELS)
 
-    def test_loaded_model_has_same_config(self, loader, tmp_path):
+    def test_loaded_model_has_same_config(self, saved_checkpoint):
         """Test that loaded model preserves configuration."""
-        # Create and save a model
-        model = create_model(loader.tokenizer)
-
-        checkpoint_path = tmp_path / "test_checkpoint"
-        model.save_pretrained(checkpoint_path)
-
         # Load from checkpoint
-        loaded_model = load_model_from_checkpoint(checkpoint_path)
+        loaded_model = load_model_from_checkpoint(saved_checkpoint)
 
         # Should have same label mappings
         assert loaded_model.config.label2id == LABEL2ID

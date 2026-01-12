@@ -256,6 +256,7 @@ def create_datasets(
     val_path: Path | str | None = None,
     test_path: Path | str | None = None,
     config_path: Path | str | None = None,
+    tag_retention_prob: float | None = None,
 ) -> DatasetDict:
     """
     Create train/val/test datasets from JSONL files.
@@ -268,7 +269,9 @@ def create_datasets(
     datasets = {}
 
     logger.info(f"Loading training data from {train_path}")
-    datasets["train"] = create_extraction_dataset(train_path, config_path)
+    datasets["train"] = create_extraction_dataset(
+        train_path, config_path, tag_retention_prob=tag_retention_prob
+    )
     logger.info(f"Training examples: {len(datasets['train'])}")
 
     # Create validation dataset
@@ -281,7 +284,9 @@ def create_datasets(
             )
         else:
             logger.info(f"Loading validation data from {val_path}")
-            datasets["validation"] = create_extraction_dataset(val_path, config_path)
+            datasets["validation"] = create_extraction_dataset(
+                val_path, config_path, tag_retention_prob=tag_retention_prob
+            )
             logger.info(f"Validation examples: {len(datasets['validation'])}")
     else:
         logger.warning(
@@ -297,7 +302,9 @@ def create_datasets(
             )
         else:
             logger.info(f"Loading test data from {test_path}")
-            datasets["test"] = create_extraction_dataset(test_path, config_path)
+            datasets["test"] = create_extraction_dataset(
+                test_path, config_path, tag_retention_prob=tag_retention_prob
+            )
             logger.info(f"Test examples: {len(datasets['test'])}")
 
     return DatasetDict(datasets)
@@ -365,6 +372,8 @@ def train(
     weight_decay: float | None = None,
     early_stopping_patience: int | None = None,
     seed: int | None = None,
+    tag_retention_prob: float | None = None,
+    max_steps: int | None = None,
 ) -> Trainer:
     """
     Train citation extraction model.
@@ -385,6 +394,7 @@ def train(
         weight_decay: weight decay for regularization
         early_stopping_patience: patience for early stopping in epochs
         seed: random seed for reproducible experiments (reads from config if None)
+        max_steps: maximum number of training steps (overrides num_epochs if set)
 
     Returns:
         Trained Trainer object
@@ -396,9 +406,16 @@ def train(
     if seed is None:
         seed = training_config.seed
 
+    random.seed(seed)
     torch.manual_seed(seed)
 
-    datasets = create_datasets(train_path, val_path, test_path, config_path)
+    datasets = create_datasets(
+        train_path,
+        val_path,
+        test_path,
+        config_path,
+        tag_retention_prob,
+    )
 
     logger.info("Creating model...")
     loader = ExtractionDataLoader(config_path=config_path)
@@ -419,6 +436,7 @@ def train(
         "per_device_train_batch_size": batch_size,
         "per_device_eval_batch_size": batch_size,
         "num_train_epochs": num_epochs,
+        "max_steps": max_steps,
         "weight_decay": weight_decay,
         "warmup_steps": warmup_steps,
         "seed": seed,
@@ -515,6 +533,11 @@ def train(
     test_metrics = None
     if test_path:
         logger.info("Evaluating on test set ...")
+        # Remove early stopping callback to avoid spurious warning during test evaluation
+        trainer.callback_handler.callbacks = [
+            cb for cb in trainer.callback_handler.callbacks
+            if not isinstance(cb, EarlyStoppingCallback)
+        ]
         test_metrics = trainer.evaluate(datasets["test"], metric_key_prefix="test")  # type: ignore[arg-type]
         trainer.log_metrics("test", test_metrics)
         # Save to final model dir
