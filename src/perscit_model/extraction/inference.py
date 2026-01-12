@@ -231,7 +231,7 @@ class InferenceModel:
             labels: list of labels from prediction, or list of lists for batch
 
         Returns:
-            A string or list of strings of texts with XML tags (<bibl>, <quote>, <cit>) inserted from prediction
+            A string or list of strings of texts with XML tags (<bibl>, <quote>) inserted from prediction
         """
         try:
             offset_mapping = cast(IntTensor, encoding["offset_mapping"])
@@ -390,7 +390,7 @@ class InferenceModel:
         self, text: str, **kwargs
     ) -> tuple[transformers.BatchEncoding, list[str]]:
         """
-        Run inference on plain text (without <bibl>, <cit>, or <quote> tags).
+        Run inference on plain text (without <bibl> or <quote> tags).
 
         Args:
             text: Plain text without XML citation tags
@@ -401,7 +401,7 @@ class InferenceModel:
 
         Note:
             Input should be plain text. If you have XML with tags, strip them first.
-            The model predicts where <bibl>, <quote>, and <cit> tags should be.
+            The model predicts where <bibl> and <quote> tags should be.
         """
 
         # Tokenize plain text (no special token conversion during inference)
@@ -480,7 +480,7 @@ class InferenceModel:
         **kwargs,
     ) -> list[str]:
         """
-        Run inference on plain text (without <bibl>, <cit>, or <quote> tags).
+        Run inference on plain text (without <bibl> or <quote> tags).
 
         Args:
             inputs: BatchEncoding object with input_ids.
@@ -491,7 +491,7 @@ class InferenceModel:
 
         Note:
             Input should be tokenized text. If you have XML with tags, strip them first.
-            The model predicts where <bibl>, <quote>, and <cit> tags should be.
+            The model predicts where <bibl> and <quote> tags should be.
         """
         # Move inputs to device
         inputs_on_device = {

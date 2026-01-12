@@ -33,7 +33,8 @@ ID2LABEL = {idx: label for idx, label in enumerate(BIO_LABELS)}
 class ExtractionDataLoader(SharedDataLoader):
     """Data loader for tag extraction task - only tokenizes xml_context."""
 
-    special_tags = ["bibl", "quote", "cit"]
+    # Tags that model predicts (cit tags are structural wrappers, not predicted)
+    special_tags = ["bibl", "quote"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

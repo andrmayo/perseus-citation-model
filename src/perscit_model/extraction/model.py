@@ -1,4 +1,4 @@
-"""Model definition for citation extraction (token classification as <cit>, <quote>, or <bibl>)."""
+"""Model definition for citation extraction (token classification as <bibl> or <quote>)."""
 
 from pathlib import Path
 

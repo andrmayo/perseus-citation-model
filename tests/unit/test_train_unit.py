@@ -366,14 +366,14 @@ class TestComputeMetrics:
 
     def test_compute_metrics_with_bio_tags(self):
         """Test metrics with realistic BIO tag predictions."""
-        # Simulate 3-class BIO tagging: O=0, B-CIT=1, I-CIT=2
-        # Sequence: O B-CIT I-CIT O
+        # Simulate 3-class BIO tagging: O=0, B-BIBL=1, I-BIBL=2
+        # Sequence: O B-BIBL I-BIBL O
         predictions = np.array(
             [
                 [
                     [0.9, 0.05, 0.05],  # Predict O
-                    [0.1, 0.8, 0.1],  # Predict B-CIT
-                    [0.1, 0.1, 0.8],  # Predict I-CIT
+                    [0.1, 0.8, 0.1],  # Predict B-BIBL
+                    [0.1, 0.1, 0.8],  # Predict I-BIBL
                     [0.8, 0.1, 0.1],  # Predict O
                 ]
             ]
