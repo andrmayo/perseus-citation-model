@@ -34,6 +34,7 @@ class TrainingConfig:
     report_to: str = "none"
     fp16: bool = True
     dataloader_num_workers: int = 4
+    dataloader_pin_memory: bool = False
     gradient_accumulation_steps: int = 1
     seed: int = 42
     load_best_model_at_end: bool = True

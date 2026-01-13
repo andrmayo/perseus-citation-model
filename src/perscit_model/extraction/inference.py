@@ -514,7 +514,7 @@ class InferenceModel:
             if attention_mask is not None and not isinstance(
                 attention_mask, ByteTensor
             ):
-                attention_mask = ByteTensor(attention_mask)
+                attention_mask = cast(ByteTensor, attention_mask.byte())  # Preserves device (GPU/CPU)
             predictions = cast(CRF, self.model).decode(logits, attention_mask)[
                 0
             ]  # First in batch

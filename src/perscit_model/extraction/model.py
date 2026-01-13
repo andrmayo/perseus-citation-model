@@ -110,7 +110,7 @@ class TokenClassificationWithCRF(PreTrainedModel):
             ]
 
             if batch_logits:
-                # Pad sequences (transpose because pad_sequence expects [seq_len, batch, ...])
+                # Pad sequences to consistent length for CRF (batch_first=True returns [batch, seq_len, ...])
                 padded_logits = pad_sequence(
                     batch_logits, batch_first=True, padding_value=0.0
                 )
@@ -118,14 +118,14 @@ class TokenClassificationWithCRF(PreTrainedModel):
                     batch_labels, batch_first=True, padding_value=0
                 )
 
-                # Create mask efficiently
+                # Create mask efficiently (ByteTensor required by CRF)
                 lengths = torch.tensor(
                     [len(seq) for seq in batch_logits], device=logits.device
                 )
                 max_len = padded_logits.size(1)
-                padded_mask = torch.arange(max_len, device=logits.device).expand(
+                padded_mask = (torch.arange(max_len, device=logits.device).expand(
                     len(lengths), max_len
-                ) < lengths.unsqueeze(1)
+                ) < lengths.unsqueeze(1)).byte()  # Convert BoolTensor to ByteTensor
 
                 # Now first position is always valid - CRF requirement satisfied
                 loss = -self.crf(
@@ -154,12 +154,12 @@ class TokenClassificationWithCRF(PreTrainedModel):
             attention_mask: attention mask[batch_size, seq_len]
 
         Returns:
-            List of best tag sequences
+            List of best tag sequences (same length as input after removing special tokens)
         """
 
-        # crf.decode uses legacy tensor types
+        # crf.decode uses legacy tensor types and needs ByteTensor
         if attention_mask is not None and not isinstance(attention_mask, ByteTensor):
-            attention_mask = torch.ByteTensor(attention_mask)
+            attention_mask = cast(ByteTensor, attention_mask.byte())  # Preserves device (GPU/CPU)
         return self.crf.decode(logits, mask=attention_mask)
 
     def get_input_embeddings(self):
