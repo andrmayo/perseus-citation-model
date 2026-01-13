@@ -134,10 +134,6 @@ class TokenClassificationWithCRF(PreTrainedModel):
                     mask=padded_mask,
                     reduction="token_mean",
                 )
-                # Normalize by average sequence length to get per-token loss
-                # (CRF returns sequence-level loss, not per-token)
-                avg_length = lengths.float().mean()
-                loss = loss / avg_length
 
         if not return_dict:
             output = (logits,) + outputs[1:]
