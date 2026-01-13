@@ -47,6 +47,7 @@ wandb/
 !cit_data/**/.gitkeep
 !outputs/.gitkeep
 !outputs/**/.gitkeep
+!outputs/output_layout.md
 
 # Jupyter
 .ipynb_checkpoints/
