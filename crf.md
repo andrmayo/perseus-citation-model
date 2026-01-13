@@ -32,31 +32,36 @@ pytorch-crf = "^0.7.2"
 Create `src/perscit_model/extraction/model_crf.py`:
 
 ```python
-"""DeBERTa + CRF model for citation extraction."""
+"""Generic transformer + CRF model for citation extraction.
+
+Works with any AutoModel (DeBERTa, RoBERTa, BERT, etc.)
+"""
 
 import torch
 import torch.nn as nn
 from torchcrf import CRF
-from transformers import DebertaV2PreTrainedModel, DebertaV2Model
+from transformers import AutoModel, PreTrainedModel
 from transformers.modeling_outputs import TokenClassifierOutput
 
 
-class DebertaV2ForTokenClassificationWithCRF(DebertaV2PreTrainedModel):
-    """DeBERTa v2 model with CRF layer for token classification.
+class AutoModelForTokenClassificationWithCRF(PreTrainedModel):
+    """Generic transformer model with CRF layer for token classification.
 
-    This model adds a CRF layer on top of DeBERTa to enforce valid BIO tag transitions.
+    This model adds a CRF layer on top of any AutoModel encoder to enforce
+    valid BIO tag transitions. Works with DeBERTa, RoBERTa, BERT, etc.
     """
 
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
 
-        self.deberta = DebertaV2Model(config)
+        # Load the base encoder (e.g., DeBERTa, RoBERTa, BERT)
+        self.encoder = AutoModel.from_config(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
         self.crf = CRF(config.num_labels, batch_first=True)
 
-        # Initialize weights and apply final processing
+        # Initialize weights
         self.post_init()
 
     def forward(
@@ -73,7 +78,8 @@ class DebertaV2ForTokenClassificationWithCRF(DebertaV2PreTrainedModel):
     ):
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-        outputs = self.deberta(
+        # Pass through encoder (works with any transformer)
+        outputs = self.encoder(
             input_ids,
             attention_mask=attention_mask,
             token_type_ids=token_type_ids,

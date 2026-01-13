@@ -7,13 +7,17 @@ from typing import Callable, cast
 
 import torch
 import transformers
-from torch import IntTensor
+from torch import ByteTensor, IntTensor
+from torchcrf import CRF
 
 from perscit_model.extraction.data_loader import (
     ID2LABEL,
     ExtractionDataLoader,
 )
-from perscit_model.extraction.model import load_model_from_checkpoint
+from perscit_model.extraction.model import (
+    TokenClassificationWithCRF,
+    load_model_from_checkpoint,
+)
 
 MODEL_TRAIN_DIR = Path(__file__).parent.parent.parent.parent / "outputs" / "extraction"
 MODEL_SAVE_DIR = (
@@ -45,7 +49,7 @@ class InferenceModel:
     @staticmethod
     def load_model(
         path: str | Path | None = None, last_trained=False
-    ) -> transformers.AutoModelForTokenClassification:
+    ) -> transformers.AutoModelForTokenClassification | TokenClassificationWithCRF:
         def check_path(p: str | Path) -> Path:
             if isinstance(p, str):
                 try:
@@ -503,6 +507,20 @@ class InferenceModel:
         with torch.no_grad():
             outputs = call_model(**inputs_on_device, **kwargs)
         logits = outputs.logits
-        predictions = logits.argmax(dim=-1).squeeze().tolist()
+
+        # Check if model has CRF layer
+        if hasattr(self.model, "decode"):
+            attention_mask = inputs_on_device["attention_mask"]
+            if attention_mask is not None and not isinstance(
+                attention_mask, ByteTensor
+            ):
+                attention_mask = ByteTensor(attention_mask)
+            predictions = cast(CRF, self.model).decode(logits, attention_mask)[
+                0
+            ]  # First in batch
+        else:
+            # argmax for softmax decoding
+            predictions = logits.argmax(dim=-1).squeeze().tolist()
+
         labels = [ID2LABEL[p] for p in predictions]
         return labels

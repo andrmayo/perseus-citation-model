@@ -1,6 +1,6 @@
 # Model
 model_name: microsoft/deberta-v3-base
-use_crf: true
+use_crf: false
 max_length: 512
 
 # Optimization
@@ -10,7 +10,7 @@ warmup_ratio: 0.1
 gradient_accumulation_steps: 1
 
 # Training
-num_train_epochs: 6
+num_train_epochs: 5
 per_device_train_batch_size: 16
 per_device_eval_batch_size: 32
 fp16: true

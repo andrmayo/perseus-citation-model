@@ -423,9 +423,11 @@ def train(
         loader.tokenizer,
         config_path=config_path,
         pretrained_model_path=pretrained_model_path,
+        use_crf=training_config.use_crf,
     )
 
     logger.info(f"Model: {model.config.model_type}")
+    logger.info(f"Model uses CRF: {training_config.use_crf}")
     logger.info(f"Vocabulary size: {loader.tokenizer.vocab_size}")
     logger.info(f"Number of parameters: {model.num_parameters()}")
 
@@ -535,7 +537,8 @@ def train(
         logger.info("Evaluating on test set ...")
         # Remove early stopping callback to avoid spurious warning during test evaluation
         trainer.callback_handler.callbacks = [
-            cb for cb in trainer.callback_handler.callbacks
+            cb
+            for cb in trainer.callback_handler.callbacks
             if not isinstance(cb, EarlyStoppingCallback)
         ]
         test_metrics = trainer.evaluate(datasets["test"], metric_key_prefix="test")  # type: ignore[arg-type]

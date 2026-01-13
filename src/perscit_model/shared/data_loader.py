@@ -1,4 +1,5 @@
 import json
+import warnings
 from pathlib import Path
 from typing import Generator
 
@@ -101,9 +102,18 @@ class SharedDataLoader:
             Pretrained tokenizer for the model
         """
         if self._tokenizer is None:
-            self._tokenizer = AutoTokenizer.from_pretrained(
-                self.model_name, use_fast=self.use_fast
-            )
+            # Suppress tokenizer warning about byte fallback in fast tokenizers
+            # This is expected behavior for sentencepiece-based tokenizers (DeBERTa, etc.)
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=".*byte fallback.*",
+                    category=UserWarning,
+                    module="transformers.convert_slow_tokenizer",
+                )
+                self._tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_name, use_fast=self.use_fast
+                )
             if self.special_tokens:
                 self._tokenizer.add_special_tokens(
                     {"additional_special_tokens": self.special_tokens}

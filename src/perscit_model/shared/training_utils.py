@@ -45,6 +45,7 @@ class TrainingConfig:
     # Custom fields NOT in TrainingArguments
     model_name: str = "microsoft/deberta-v3-base"
     max_length: int = 512
+    use_crf: bool = True  # Use CRF layer for enforcing valid BIO transitions
     early_stopping_patience: int = 3
     early_stopping_threshold: float = 0.0001
 

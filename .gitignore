@@ -1,6 +1,7 @@
 # Data files (large JSONL files)
 cit_data/*
 old_files/
+outputs/old_checkpoints
 
 # Python
 __pycache__/

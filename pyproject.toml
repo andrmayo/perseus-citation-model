@@ -11,6 +11,7 @@ dependencies = [
   "lxml>=6.0.2",
   "lxml-stubs>=0.5.1",
   "protobuf>=6.33.1",
+  "pytorch-crf>=0.7.2",
   "sentencepiece>=0.2.1",
   "seqeval>=1.2.2",
   "tiktoken>=0.12.0",
