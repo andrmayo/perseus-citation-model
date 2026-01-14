@@ -9,34 +9,32 @@ from perscit_model.extraction.train import train_pipeline
 PHASE_1_PARTITION_DIR = Path(__file__).parent.parent / "model_data/extraction/phase_1"
 PHASE_1_SRC_PATH = Path(__file__).parent.parent / "cit_data/snippets/resolved.jsonl"
 
-log_dir = Path(__file__).parent.parent / "outputs" / "logs" / "extraction"
-log_dir.mkdir(parents=True, exist_ok=True)
-log_path = log_dir / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
-
-# Configure logging to both file and console
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-# File handler - timestamped log file
-file_handler = logging.FileHandler(log_path)
-file_handler.setLevel(logging.INFO)
-
-# Console handler - stdout
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-
-# Format for both handlers
-formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-file_handler.setFormatter(formatter)
-console_handler.setFormatter(formatter)
-
-# Add both handlers to root logger
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
-
 if __name__ == "__main__":
-    logging.info("Starting Phase 1 training (snippets)...")
+    # Configure logging inside main guard to avoid duplicate log files from dataloader workers
+    log_dir = Path(__file__).parent.parent / "outputs" / "logs" / "extraction"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
 
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # File handler - timestamped log file
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setLevel(logging.INFO)
+
+    # Console handler - stdout
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+
+    # Format for both handlers
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    logging.info("Starting Phase 1 training (snippets)...")
     train_pipeline(data_dir=PHASE_1_PARTITION_DIR, src_path=PHASE_1_SRC_PATH)
 
 # train_pipeline should run as intendended without arguments;

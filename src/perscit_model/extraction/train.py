@@ -3,6 +3,7 @@
 import json
 import logging
 import random
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -37,6 +38,17 @@ from perscit_model.shared.training_utils import TrainingConfig
 logger = logging.getLogger(__name__)
 
 
+def _count_tags_in_text(text: str) -> tuple[int, int]:
+    """Count <bibl> and <quote> opening tags in text.
+
+    Returns:
+        Tuple of (bibl_count, quote_count)
+    """
+    bibl_count = len(re.findall(r"<bibl[^>]*>", text))
+    quote_count = len(re.findall(r"<quote[^>]*>", text))
+    return bibl_count, quote_count
+
+
 def split_data(
     input_file: Path | str,
     output_dir: Path | str,
@@ -46,9 +58,10 @@ def split_data(
     config_path: Path | str = DEFAULT_CONFIG,
     seed: int | None = None,
     force_redo: bool = False,
+    label_tolerance: float = 0.10,
 ) -> tuple[Path, Path, Path]:
     """
-    Split JSONL data into train/val/test sets.
+    Split JSONL data into train/val/test sets with stratification by label distribution.
 
     Args:
         input_file: Path to input JSONL file
@@ -59,6 +72,7 @@ def split_data(
         config_path: Path to training config YAML (for reading split ratios and seed)
         seed: Random seed for reproducibility (reads from config if None)
         force_redo: If True, always redo the split even if existing split matches
+        label_tolerance: Max allowed deviation of QUOTE ratio from overall ratio (default 10%)
 
     Returns:
         Tuple of (train_path, val_path, test_path)
@@ -135,27 +149,47 @@ def split_data(
     logger.info(f"Loading data from {input_file}")
     from collections import defaultdict
 
-    examples_by_file = defaultdict(list)
+    examples_by_file: dict[str, list[dict]] = defaultdict(list)
+    tags_by_file: dict[str, tuple[int, int]] = {}  # filename -> (bibl_count, quote_count)
 
     with open(input_file) as f:
         for line in f:
             example = json.loads(line)
-            examples_by_file[example.get("filename", "")].append(example)
+            filename = example.get("filename", "")
+            examples_by_file[filename].append(example)
+
+            # Count tags in this example (check both window_text and xml_context fields)
+            text = example.get("window_text", "") or example.get("xml_context", "")
+            bibl, quote = _count_tags_in_text(text)
+            prev_bibl, prev_quote = tags_by_file.get(filename, (0, 0))
+            tags_by_file[filename] = (prev_bibl + bibl, prev_quote + quote)
 
     total_examples = sum(len(examples) for examples in examples_by_file.values())
+    total_bibl = sum(t[0] for t in tags_by_file.values())
+    total_quote = sum(t[1] for t in tags_by_file.values())
+    total_tags = total_bibl + total_quote
+    overall_quote_ratio = total_quote / total_tags if total_tags > 0 else 0.0
+
     logger.info(
         f"Loaded {total_examples} examples from {len(examples_by_file)} unique files"
     )
+    if total_tags > 0:
+        logger.info(
+            f"Overall tag distribution: BIBL={total_bibl} ({100*total_bibl/total_tags:.1f}%), "
+            f"QUOTE={total_quote} ({100*total_quote/total_tags:.1f}%)"
+        )
+    else:
+        logger.info("No BIBL/QUOTE tags found in data, skipping label stratification")
 
     # Split by files (not individual examples) to prevent overlapping contexts
-    # Try multiple shuffles to find a split that's close to target ratios
+    # Try multiple shuffles to find a split that's close to target ratios AND label distribution
     random.seed(seed)
     filenames = list(examples_by_file.keys())
 
     max_attempts = 100
-    tolerance = 0.02  # Allow 2% deviation from target ratios
+    tolerance = 0.02  # Allow 2% deviation from target example ratios
     best_split = None
-    best_deviation = float("inf")
+    best_score = float("inf")  # Combined score of example + label deviation
 
     for attempt in range(max_attempts):
         random.shuffle(filenames)
@@ -174,21 +208,42 @@ def split_data(
         val_count = sum(len(examples_by_file[f]) for f in val_files)
         test_count = sum(len(examples_by_file[f]) for f in test_files)
 
-        # Calculate actual ratios
+        # Calculate actual example ratios
         actual_train_ratio = train_count / total_examples
         actual_val_ratio = val_count / total_examples
         actual_test_ratio = test_count / total_examples
 
-        # Calculate deviation from target
-        max_deviation = max(
+        # Calculate example ratio deviation
+        max_example_deviation = max(
             abs(actual_train_ratio - train_ratio),
             abs(actual_val_ratio - val_ratio),
             abs(actual_test_ratio - test_ratio),
         )
 
+        # Calculate QUOTE ratio for each split
+        def get_quote_ratio(file_list: list[str]) -> float:
+            bibl = sum(tags_by_file.get(f, (0, 0))[0] for f in file_list)
+            quote = sum(tags_by_file.get(f, (0, 0))[1] for f in file_list)
+            total = bibl + quote
+            return quote / total if total > 0 else 0.0
+
+        train_quote_ratio = get_quote_ratio(train_files)
+        val_quote_ratio = get_quote_ratio(val_files)
+        test_quote_ratio = get_quote_ratio(test_files)
+
+        # Calculate label deviation from overall ratio
+        max_label_deviation = max(
+            abs(train_quote_ratio - overall_quote_ratio),
+            abs(val_quote_ratio - overall_quote_ratio),
+            abs(test_quote_ratio - overall_quote_ratio),
+        )
+
+        # Combined score: prioritize example ratio but also consider label balance
+        combined_score = max_example_deviation + max_label_deviation
+
         # Keep track of best split
-        if max_deviation < best_deviation:
-            best_deviation = max_deviation
+        if combined_score < best_score:
+            best_score = combined_score
             best_split = (
                 train_files,
                 val_files,
@@ -196,26 +251,56 @@ def split_data(
                 train_count,
                 val_count,
                 test_count,
+                max_example_deviation,
+                max_label_deviation,
+                train_quote_ratio,
+                val_quote_ratio,
+                test_quote_ratio,
             )
 
         # If within tolerance, use this split
-        if max_deviation <= tolerance:
-            logger.info(
-                f"Found acceptable split after {attempt + 1} attempts "
-                f"(max deviation: {max_deviation:.1%})"
-            )
+        # Skip label check if no tags found (total_tags == 0)
+        label_ok = total_tags == 0 or max_label_deviation <= label_tolerance
+        if max_example_deviation <= tolerance and label_ok:
+            if total_tags > 0:
+                logger.info(
+                    f"Found acceptable split after {attempt + 1} attempts "
+                    f"(example deviation: {max_example_deviation:.1%}, "
+                    f"label deviation: {max_label_deviation:.1%})"
+                )
+            else:
+                logger.info(
+                    f"Found acceptable split after {attempt + 1} attempts "
+                    f"(example deviation: {max_example_deviation:.1%})"
+                )
             break
     else:
         # Use best split found
-        logger.warning(
-            f"Could not find split within {tolerance:.1%} tolerance after {max_attempts} attempts. "
-            f"Using best split found (max deviation: {best_deviation:.1%})"
-        )
         if best_split is None:
-            raise ValueError
-        train_files, val_files, test_files, train_count, val_count, test_count = (
-            best_split
-        )
+            raise ValueError("No valid split found")
+        (
+            train_files,
+            val_files,
+            test_files,
+            train_count,
+            val_count,
+            test_count,
+            best_example_dev,
+            best_label_dev,
+            train_quote_ratio,
+            val_quote_ratio,
+            test_quote_ratio,
+        ) = best_split
+        if total_tags > 0:
+            logger.warning(
+                f"Could not find split within tolerances after {max_attempts} attempts. "
+                f"Using best split (example dev: {best_example_dev:.1%}, label dev: {best_label_dev:.1%})"
+            )
+        else:
+            logger.warning(
+                f"Could not find split within tolerances after {max_attempts} attempts. "
+                f"Using best split (example dev: {best_example_dev:.1%})"
+            )
 
     # Log the actual distribution
     logger.info(
@@ -223,6 +308,11 @@ def split_data(
         f"Val: {val_count}/{total_examples} ({val_count / total_examples:.1%}), "
         f"Test: {test_count}/{total_examples} ({test_count / total_examples:.1%})"
     )
+    if total_tags > 0:
+        logger.info(
+            f"QUOTE ratios - Train: {train_quote_ratio:.1%}, Val: {val_quote_ratio:.1%}, "
+            f"Test: {test_quote_ratio:.1%} (target: {overall_quote_ratio:.1%})"
+        )
 
     # Collect all examples for each split (now we know it's balanced)
     train_data = [ex for f in train_files for ex in examples_by_file[f]]

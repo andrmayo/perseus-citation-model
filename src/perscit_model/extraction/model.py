@@ -52,7 +52,10 @@ class TokenClassificationWithCRF(PreTrainedModel):
         self.encoder = AutoModel.from_config(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
+
+        # CRF layer - keep in fp32 for numerical stability (log-space operations)
         self.crf = CRF(config.num_labels, batch_first=batch_first)
+        # Note: CRF will stay in fp32 even when model is converted to fp16
 
         # Initialize weights
         self.post_init()
@@ -98,9 +101,11 @@ class TokenClassificationWithCRF(PreTrainedModel):
             valid_mask = labels != -100  # [batch, seq_len]
 
             # Extract valid tokens for each sequence (still need loop for variable lengths)
+            # Cast to fp32 for CRF to avoid numerical instability with fp16
+            logits_fp32 = logits.float()
             batch_logits = [
-                logits[i][valid_mask[i]]
-                for i in range(logits.size(0))
+                logits_fp32[i][valid_mask[i]]
+                for i in range(logits_fp32.size(0))
                 if valid_mask[i].any()
             ]
             batch_labels = [
@@ -118,15 +123,14 @@ class TokenClassificationWithCRF(PreTrainedModel):
                     batch_labels, batch_first=True, padding_value=0
                 )
 
-                # Create mask efficiently (ByteTensor required by CRF)
+                # Create mask efficiently
                 lengths = torch.tensor(
                     [len(seq) for seq in batch_logits], device=logits.device
                 )
                 max_len = padded_logits.size(1)
-                padded_mask = (torch.arange(max_len, device=logits.device).expand(
+                padded_mask = torch.arange(max_len, device=logits.device).expand(
                     len(lengths), max_len
-                ) < lengths.unsqueeze(1)).byte()  # Convert BoolTensor to ByteTensor
-
+                ) < lengths.unsqueeze(1)
                 # Now first position is always valid - CRF requirement satisfied
                 loss = -self.crf(
                     padded_logits,
@@ -159,7 +163,9 @@ class TokenClassificationWithCRF(PreTrainedModel):
 
         # crf.decode uses legacy tensor types and needs ByteTensor
         if attention_mask is not None and not isinstance(attention_mask, ByteTensor):
-            attention_mask = cast(ByteTensor, attention_mask.byte())  # Preserves device (GPU/CPU)
+            attention_mask = cast(
+                ByteTensor, attention_mask.byte()
+            )  # Preserves device (GPU/CPU)
         return self.crf.decode(logits, mask=attention_mask)
 
     def get_input_embeddings(self):

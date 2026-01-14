@@ -13,35 +13,32 @@ PHASE_1_MODEL = (
     / "outputs/models/curriculum_learning/extraction_phase_1"
 )
 
+if __name__ == "__main__":
+    # Configure logging inside main guard to avoid duplicate log files from dataloader workers
+    log_dir = Path(__file__).parent.parent / "outputs" / "logs" / "extraction"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
 
-log_dir = Path(__file__).parent.parent / "outputs" / "logs" / "extraction"
-log_dir.mkdir(parents=True, exist_ok=True)
-log_path = log_dir / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
 
-# Configure logging to both file and console
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+    # File handler - timestamped log file
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setLevel(logging.INFO)
 
-# File handler - timestamped log file
-file_handler = logging.FileHandler(log_path)
-file_handler.setLevel(logging.INFO)
+    # Console handler - stdout
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
 
-# Console handler - stdout
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
+    # Format for both handlers
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
 
-# Format for both handlers
-formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-file_handler.setFormatter(formatter)
-console_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
-# Add both handlers to root logger
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
-
-if __name__ == '__main__':
     logging.info("Starting Phase 2 training (curriculum learning on full documents)...")
-
     train_pipeline(
         data_dir=PHASE_2_PARTITION_DIR,
         src_path=PHASE_2_SRC_PATH,
