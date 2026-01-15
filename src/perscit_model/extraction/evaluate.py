@@ -187,8 +187,14 @@ def evaluate_model(
         with torch.no_grad():
             outputs = model.model(**batch_inputs)
 
-        # Get predictions
-        predictions = outputs.logits.argmax(dim=-1).cpu().tolist()
+        # Get predictions - use CRF Viterbi decode if available
+        if hasattr(model.model, "decode"):
+            attention_mask = batch_inputs["attention_mask"]
+            if not isinstance(attention_mask, torch.ByteTensor):
+                attention_mask = attention_mask.byte()
+            predictions = model.model.decode(outputs.logits, attention_mask)
+        else:
+            predictions = outputs.logits.argmax(dim=-1).cpu().tolist()
 
         # Process each example in batch
         for j, (example, pred_ids, input_ids) in enumerate(

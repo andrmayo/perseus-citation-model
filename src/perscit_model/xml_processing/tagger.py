@@ -4,7 +4,7 @@ import tempfile
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import cast, Iterable
+from typing import Callable, cast, Iterable
 
 from lxml import etree
 from lxml.etree import _Element, XMLSyntaxError
@@ -38,7 +38,7 @@ class CitationTagger:
     def __init__(
         self,
         model_path: str | Path,
-        window_size: int = 512,
+        window_size: int = 500,
         stride: int | None = None,
         center: int | None = None,
         device: str | None = None,
@@ -47,7 +47,10 @@ class CitationTagger:
         """
         Args:
             model_path: path to model to load
-            window_size: this should probably be equal to the training context window
+            window_size: Maximum tokens per window. Default 500 (not 512) because the model
+                requires some PAD tokens at the end for reliable predictions. Training data
+                had variable-length sequences padded to 512, so the model learned to use
+                PAD tokens as an end-of-sequence signal.
             stride: number of tokens to shift context window by, by default half of the window size
             center: defaults to stride, which ensures that every token winds up in center for some window
         """
@@ -387,29 +390,33 @@ class CitationTagger:
         # Step 2: Predict on all windows in batches
         all_window_predictions = []
 
+        # Get max_length from loader (training used max_length padding)
+        target_length = self.loader.max_length
+
         for batch_start in range(0, len(windows), self.batch_size):
             batch_windows = windows[batch_start : batch_start + self.batch_size]
 
-            # Pad windows to same length for batching
-            max_len = max(w["input_ids"].shape[0] for w in batch_windows)
+            # Track original window lengths
+            window_lengths = [w["input_ids"].shape[0] for w in batch_windows]
+
+            # Pad windows to max_length (to match training preprocessing)
+            # Training data was padded to max_length with all-1s attention masks
+            pad_token_id = self.loader.tokenizer.pad_token_id or 0
 
             batch_input_ids = torch.stack(
                 [
                     torch.nn.functional.pad(
-                        w["input_ids"], (0, max_len - w["input_ids"].shape[0])
+                        w["input_ids"],
+                        (0, target_length - w["input_ids"].shape[0]),
+                        value=pad_token_id,
                     )
                     for w in batch_windows
                 ]
             )
 
-            batch_attention_mask = torch.stack(
-                [
-                    torch.nn.functional.pad(
-                        w["attention_mask"], (0, max_len - w["attention_mask"].shape[0])
-                    )
-                    for w in batch_windows
-                ]
-            )
+            # IMPORTANT: Training data had all-1s attention masks after preprocessing.
+            # Create all-1s attention masks to match training behavior.
+            batch_attention_mask = torch.ones_like(batch_input_ids)
 
             # Move to device and predict
             batch_input_ids = batch_input_ids.to(self.device)
@@ -420,8 +427,21 @@ class CitationTagger:
                     input_ids=batch_input_ids, attention_mask=batch_attention_mask
                 )
 
-            # predictions has dimensions [batch_size, max_len]
-            predictions = outputs.logits.argmax(dim=-1)
+            # Use CRF Viterbi decode if available, otherwise argmax
+            if hasattr(self.inference_model.model, "decode"):
+                # CRF decode returns list of lists (variable length per sequence)
+                predictions = cast(Callable, self.inference_model.model.decode)(
+                    outputs.logits, batch_attention_mask
+                )
+                # Pad to tensor for consistent handling below
+                max_len = max(len(p) for p in predictions)
+                predictions = torch.tensor(
+                    [p + [0] * (max_len - len(p)) for p in predictions],
+                    device="cpu",
+                )
+            else:
+                # predictions has dimensions [batch_size, max_len]
+                predictions = outputs.logits.argmax(dim=-1)
 
             # Store predictions for each window (unpadded)
             for i, window in enumerate(batch_windows):

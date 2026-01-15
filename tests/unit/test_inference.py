@@ -29,6 +29,7 @@ def mock_loader():
     tokenizer.sep_token_id = 102
     tokenizer.pad_token_id = 0
     loader.tokenizer = tokenizer
+    loader.max_length = 512  # Required for padding in predict/process_batch
     return loader
 
 
@@ -158,19 +159,27 @@ class TestProcessBatch:
 
         assert len(results) == 2
 
-    def test_process_batch_raises_on_too_long_text(self, mock_inference_model):
-        """Test that process_batch raises error when text is too long."""
+    def test_process_batch_truncates_long_text(self, mock_inference_model):
+        """Test that process_batch truncates text longer than max_length."""
         texts = ["x" * 10000]  # Very long text
 
-        # Mock tokenizer to return sequence longer than max_length
+        # Mock tokenizer to return truncated sequence at max_length
+        max_len = mock_inference_model.loader.max_length
         mock_inference_model.loader.tokenizer.return_value = {
-            "input_ids": torch.tensor([[1] * 600]),  # 600 > 512
-            "attention_mask": torch.tensor([[1] * 600]),
-            "offset_mapping": torch.tensor([[(0, 1)] * 600]),
+            "input_ids": torch.tensor([[1] * max_len]),  # Truncated to max_length
+            "attention_mask": torch.tensor([[1] * max_len]),
+            "offset_mapping": torch.tensor([[(0, 1)] * max_len]),
         }
 
-        with pytest.raises(ValueError, match="Input text too long"):
-            mock_inference_model.process_batch(texts)
+        # Mock model output
+        mock_logits = torch.tensor([[[0.1, 0.9, 0.0]] * max_len])
+        mock_output = Mock()
+        mock_output.logits = mock_logits
+        mock_inference_model.model.return_value = mock_output
+
+        # Should not raise, just truncate
+        results = mock_inference_model.process_batch(texts)
+        assert len(results) == 1
 
     def test_process_batch_moves_inputs_to_device(self, mock_inference_model):
         """Test that inputs are moved to the correct device."""
