@@ -10,7 +10,7 @@ warmup_ratio: 0.1
 gradient_accumulation_steps: 2 # Effective batch size = 18 * 2 = 36
 
 # Training
-num_train_epochs: 4
+num_train_epochs: 5
 per_device_train_batch_size: 18 # Balanced for 24GB GPU with good headroom
 per_device_eval_batch_size: 48 # Eval uses less memory (no gradients)
 fp16: true

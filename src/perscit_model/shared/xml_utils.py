@@ -101,7 +101,7 @@ def get_attrs_as_string(elem: etree._Element) -> str:
     return ""
 
 
-def get_encoding(xml_path: os.PathLike) -> str | None:
+def get_encoding(xml_path: os.PathLike | str) -> str | None:
     """Quickly check encoding of XML file without loading into DOM."""
     with open(xml_path, "rb") as f:
         first_line = f.readline()

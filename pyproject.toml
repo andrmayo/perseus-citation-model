@@ -17,6 +17,7 @@ dependencies = [
   "tiktoken>=0.12.0",
   "torch>=2.9.1",
   "transformers>=4.57.1",
+  "typer>=0.21.1",
 ]
 
 [project.optional-dependencies]
