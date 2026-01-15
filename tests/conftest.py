@@ -5,6 +5,31 @@ from pathlib import Path
 import pytest
 
 
+# Cache for the real tokenizer (loaded once per test session)
+_cached_tokenizer = None
+
+
+@pytest.fixture(scope="session")
+def cached_tokenizer():
+    """Load the real DeBERTa tokenizer once and cache it for all tests.
+
+    This avoids the ~2-3 second overhead of loading the tokenizer for each test.
+    """
+    global _cached_tokenizer
+    if _cached_tokenizer is None:
+        from transformers import AutoTokenizer
+
+        from perscit_model.extraction.data_loader import SPECIAL_TOKENS
+        from perscit_model.shared.data_loader import DEFAULT_CONFIG
+        from perscit_model.shared.training_utils import TrainingConfig
+
+        config = TrainingConfig.from_yaml(DEFAULT_CONFIG)
+        _cached_tokenizer = AutoTokenizer.from_pretrained(config.model_name)
+        _cached_tokenizer.add_tokens(SPECIAL_TOKENS, special_tokens=True)
+
+    return _cached_tokenizer
+
+
 @pytest.fixture
 def mock_tokenizer(mocker):
     """Create a mock tokenizer that returns realistic BatchEncoding-like data."""
@@ -47,6 +72,20 @@ def mock_tokenizer(mocker):
     )
 
     return mock_tok
+
+
+@pytest.fixture
+def use_cached_tokenizer(mocker, cached_tokenizer):
+    """Patch AutoTokenizer.from_pretrained to return the cached tokenizer.
+
+    Use this fixture for tests that need the real tokenizer behavior but want
+    to avoid the overhead of loading it multiple times.
+    """
+    mocker.patch(
+        "perscit_model.shared.data_loader.AutoTokenizer.from_pretrained",
+        return_value=cached_tokenizer,
+    )
+    return cached_tokenizer
 
 
 @pytest.fixture(scope="module")

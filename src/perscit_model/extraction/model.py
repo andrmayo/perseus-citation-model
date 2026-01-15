@@ -296,5 +296,8 @@ def load_model_from_checkpoint(
         has_crf = any("crf." in key for key in state_dict.keys())
 
     if has_crf:
-        return TokenClassificationWithCRF.from_pretrained(checkpoint_path)
+        # TokenClassificationWithCRF doesn't have config_class set, so we need to
+        # load the config explicitly and pass it to from_pretrained
+        config = AutoConfig.from_pretrained(checkpoint_path)
+        return TokenClassificationWithCRF.from_pretrained(checkpoint_path, config=config)
     return AutoModelForTokenClassification.from_pretrained(checkpoint_path)

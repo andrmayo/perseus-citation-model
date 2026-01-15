@@ -18,7 +18,7 @@ class TestGenerateBioLabels:
     """Test suite for generate_bio_labels function."""
 
     @pytest.fixture
-    def loader_with_special_tokens(self, mocker, mock_tokenizer):
+    def loader_with_special_tokens(self, mocker, use_cached_tokenizer):
         """Create an ExtractionDataLoader with mocked tokenizer."""
         loader = ExtractionDataLoader()
 
@@ -208,7 +208,7 @@ class TestStripSpecialTokens:
     """Test suite for strip_special_tokens_and_align_labels function."""
 
     @pytest.fixture
-    def loader_with_special_tokens(self, mocker, mock_tokenizer):
+    def loader_with_special_tokens(self, mocker, use_cached_tokenizer):
         """Create an ExtractionDataLoader with mocked tokenizer."""
         loader = ExtractionDataLoader()
 
@@ -379,6 +379,7 @@ class TestStripSpecialTokens:
         assert aligned_labels == []
 
 
+@pytest.mark.slow
 class TestCreateExtractionDataset:
     """Test suite for create_extraction_dataset function."""
 
@@ -409,7 +410,7 @@ class TestCreateExtractionDataset:
         # Cleanup
         Path(temp_path).unlink()
 
-    def test_returns_dataset(self, temp_jsonl_file, mock_tokenizer):
+    def test_returns_dataset(self, temp_jsonl_file, use_cached_tokenizer):
         """Test that create_extraction_dataset returns a Dataset."""
         from datasets import Dataset
 
@@ -417,7 +418,7 @@ class TestCreateExtractionDataset:
 
         assert isinstance(dataset, Dataset)
 
-    def test_dataset_has_correct_columns(self, temp_jsonl_file, mock_tokenizer):
+    def test_dataset_has_correct_columns(self, temp_jsonl_file, use_cached_tokenizer):
         """Test that dataset has expected columns."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
@@ -426,27 +427,27 @@ class TestCreateExtractionDataset:
         assert "labels" in dataset.column_names
         assert "filename" in dataset.column_names
 
-    def test_dataset_has_correct_length(self, temp_jsonl_file, mock_tokenizer):
+    def test_dataset_has_correct_length(self, temp_jsonl_file, use_cached_tokenizer):
         """Test that dataset has same number of examples as input."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
         assert len(dataset) == 3
 
-    def test_labels_same_length_as_input_ids(self, temp_jsonl_file, mock_tokenizer):
+    def test_labels_same_length_as_input_ids(self, temp_jsonl_file, use_cached_tokenizer):
         """Test that labels have same length as input_ids for each example."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
         for i in range(len(dataset)):
             assert len(dataset[i]["labels"]) == len(dataset[i]["input_ids"])
 
-    def test_attention_mask_same_length_as_input_ids(self, temp_jsonl_file, mock_tokenizer):
+    def test_attention_mask_same_length_as_input_ids(self, temp_jsonl_file, use_cached_tokenizer):
         """Test that attention_mask has same length as input_ids."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
         for i in range(len(dataset)):
             assert len(dataset[i]["attention_mask"]) == len(dataset[i]["input_ids"])
 
-    def test_preserves_filenames(self, temp_jsonl_file, mock_tokenizer):
+    def test_preserves_filenames(self, temp_jsonl_file, use_cached_tokenizer):
         """Test that filenames are preserved in dataset."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
@@ -454,7 +455,7 @@ class TestCreateExtractionDataset:
         assert dataset[1]["filename"] == "file2.xml"
         assert dataset[2]["filename"] == "file3.xml"
 
-    def test_preserves_order(self, temp_jsonl_file, mock_tokenizer):
+    def test_preserves_order(self, temp_jsonl_file, use_cached_tokenizer):
         """Test that examples maintain input order."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
@@ -462,7 +463,7 @@ class TestCreateExtractionDataset:
         filenames = [dataset[i]["filename"] for i in range(len(dataset))]
         assert filenames == ["file1.xml", "file2.xml", "file3.xml"]
 
-    def test_labels_are_integers(self, temp_jsonl_file, mock_tokenizer):
+    def test_labels_are_integers(self, temp_jsonl_file, use_cached_tokenizer):
         """Test that labels are integer IDs."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
@@ -470,7 +471,7 @@ class TestCreateExtractionDataset:
             for label in dataset[i]["labels"]:
                 assert isinstance(label, int)
 
-    def test_labels_in_valid_range(self, temp_jsonl_file, mock_tokenizer):
+    def test_labels_in_valid_range(self, temp_jsonl_file, use_cached_tokenizer):
         """Test that label IDs are in valid range."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
@@ -480,7 +481,7 @@ class TestCreateExtractionDataset:
             for label in dataset[i]["labels"]:
                 assert label in valid_label_ids
 
-    def test_input_ids_are_integers(self, temp_jsonl_file, mock_tokenizer):
+    def test_input_ids_are_integers(self, temp_jsonl_file, use_cached_tokenizer):
         """Test that input_ids are integers."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
@@ -488,7 +489,7 @@ class TestCreateExtractionDataset:
             for token_id in dataset[i]["input_ids"]:
                 assert isinstance(token_id, int)
 
-    def test_custom_config_path(self, temp_jsonl_file, mock_tokenizer):
+    def test_custom_config_path(self, temp_jsonl_file, use_cached_tokenizer):
         """Test dataset creation with custom config path."""
         from datasets import Dataset
 
@@ -508,7 +509,7 @@ max_length: 256
         finally:
             Path(config_path).unlink()
 
-    def test_dataset_strips_special_tokens_from_input(self, temp_jsonl_file, mock_tokenizer):
+    def test_dataset_strips_special_tokens_from_input(self, temp_jsonl_file, use_cached_tokenizer):
         """Test that special tokens are NOT in the final dataset input_ids."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 

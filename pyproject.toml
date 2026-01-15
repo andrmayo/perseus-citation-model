@@ -29,6 +29,9 @@ dev = [
 ]
 all = ["perscit_model[dev]"]
 
+[project.scripts]
+perscit = "perscit_model.cli:app"
+
 [tool.uv]
 # Default to GPU-enabled PyTorch (CUDA 12.1)
 # For CPU-only (smaller install), override with: 
@@ -42,10 +45,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = [
-    "jupyterlab-vim>=4.1.4",
-    "rapidfuzz>=3.14.3",
-]
+dev = ["jupyterlab-vim>=4.1.4", "rapidfuzz>=3.14.3"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"] # Default: only run fast unit tests
