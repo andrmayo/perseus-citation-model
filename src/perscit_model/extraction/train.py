@@ -400,50 +400,80 @@ def create_datasets(
     return DatasetDict(datasets)
 
 
-def compute_metrics(eval_pred):
+def make_compute_metrics(model=None):
     """
-    Compute evaluation metrics for BIO tagging.
+    Create a compute_metrics function, optionally using CRF Viterbi decoding.
 
-    Uses seqeval for BIO tag evaluation (entity-level F1).
+    When a CRF model is provided, predictions are decoded using Viterbi algorithm
+    instead of argmax, ensuring training metrics match inference behavior.
 
     Args:
-        eval_pred: Tuple of (predictions, labels)
+        model: Optional model with CRF layer. If provided and has decode() method,
+            uses Viterbi decoding. Otherwise falls back to argmax.
 
     Returns:
-        Dict of metrics
+        compute_metrics function for HuggingFace Trainer
     """
 
-    predictions, labels = eval_pred
+    def compute_metrics(eval_pred):
+        """
+        Compute evaluation metrics for BIO tagging.
 
-    # Get argmax predictions
-    predictions = predictions.argmax(axis=-1)
+        Uses seqeval for BIO tag evaluation (entity-level F1).
 
-    # Convert IDs to label strings, removing -100 (special tokens)
-    true_labels = []
-    true_predictions = []
+        Args:
+            eval_pred: Tuple of (predictions/logits, labels)
 
-    for pred_seq, label_seq in zip(predictions, labels):
-        true_label = []
-        true_pred = []
-        for pred, lab in zip(pred_seq, label_seq):
-            if lab != -100:  # Ignore special tokens
-                true_label.append(ID2LABEL[lab])
-                true_pred.append(ID2LABEL[pred])
-        true_labels.append(true_label)
-        true_predictions.append(true_pred)
+        Returns:
+            Dict of metrics
+        """
+        logits, labels = eval_pred
 
-    # Compute metrics
-    results = {
-        "accuracy": accuracy_score(true_labels, true_predictions),
-        "precision": precision_score(true_labels, true_predictions),
-        "recall": recall_score(true_labels, true_predictions),
-        "f1": f1_score(true_labels, true_predictions),
-    }
+        # Use CRF Viterbi decoding if model has CRF layer, otherwise argmax
+        if model is not None and hasattr(model, "decode"):
+            # CRF decode expects torch tensors on same device as model
+            device = next(model.parameters()).device
+            logits_tensor = torch.tensor(logits, device=device)
+            # Create mask from labels (non -100 positions are valid)
+            # But CRF needs attention_mask style (1 for real tokens, 0 for padding)
+            # Since labels has -100 for padding AND special tokens, we need to be careful
+            # Use all positions as valid for CRF, then filter by labels later
+            mask = torch.ones(logits_tensor.shape[:2], dtype=torch.bool, device=device)
+            predictions = model.decode(logits_tensor, mask)
+        else:
+            # Fallback to argmax
+            predictions = logits.argmax(axis=-1)
 
-    # Log detailed classification report
-    logger.info("\n" + cast(str, classification_report(true_labels, true_predictions)))
+        # Convert IDs to label strings, removing -100 (special tokens)
+        true_labels = []
+        true_predictions = []
 
-    return results
+        for pred_seq, label_seq in zip(predictions, labels):
+            true_label = []
+            true_pred = []
+            for pred, lab in zip(pred_seq, label_seq):
+                if lab != -100:  # Ignore special tokens
+                    true_label.append(ID2LABEL[lab])
+                    true_pred.append(ID2LABEL[pred])
+            true_labels.append(true_label)
+            true_predictions.append(true_pred)
+
+        # Compute metrics
+        results = {
+            "accuracy": accuracy_score(true_labels, true_predictions),
+            "precision": precision_score(true_labels, true_predictions),
+            "recall": recall_score(true_labels, true_predictions),
+            "f1": f1_score(true_labels, true_predictions),
+        }
+
+        # Log detailed classification report
+        logger.info(
+            "\n" + cast(str, classification_report(true_labels, true_predictions))
+        )
+
+        return results
+
+    return compute_metrics
 
 
 def train(
@@ -556,13 +586,16 @@ def train(
         else training_config.early_stopping_patience
     )
 
+    # Create compute_metrics with model for CRF Viterbi decoding (if CRF is enabled)
+    compute_metrics_fn = make_compute_metrics(model if training_config.use_crf else None)
+
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=datasets["train"],
         eval_dataset=datasets.get("validation"),
         data_collator=data_collator,
-        compute_metrics=compute_metrics,
+        compute_metrics=compute_metrics_fn,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=patience)]
         if val_path
         else [],

@@ -435,7 +435,6 @@ class InferenceModel:
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
 
-            # Tokenize with padding to max_length (to match training preprocessing)
             inputs = self.loader.tokenizer(
                 batch,
                 padding="max_length",
@@ -445,44 +444,30 @@ class InferenceModel:
                 return_offsets_mapping=True,
             )
 
-            # Track original sequence lengths before padding
-            original_attention_mask = inputs["attention_mask"].clone()
-            original_seq_lens = original_attention_mask.sum(dim=1).tolist()
-
             # Move inputs to device and run prediction
             inputs_on_device = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                 for k, v in inputs.items()
                 if k != "offset_mapping"
             }
-
-            # IMPORTANT: The model was trained on sequences padded to max_length with all-1s
-            # attention masks. Use all-1s mask for encoder to match training behavior.
-            inputs_on_device["attention_mask"] = torch.ones_like(
-                inputs_on_device["attention_mask"]
-            )
-
             call_model = cast(Callable, self.model)
             with torch.no_grad():
                 outputs = call_model(**inputs_on_device, **kwargs)
 
             # Decode predictions - use CRF Viterbi if available
             if hasattr(self.model, "decode"):
-                # Use all-1s mask for CRF decode
                 attention_mask = inputs_on_device["attention_mask"]
                 if attention_mask is not None and not isinstance(
                     attention_mask, ByteTensor
                 ):
                     attention_mask = cast(ByteTensor, attention_mask.byte())
-                predictions = self.model.decode(outputs.logits, attention_mask)
+                predictions = cast(Callable, self.model.decode)(
+                    outputs.logits, attention_mask
+                )
             else:
                 predictions = outputs.logits.argmax(dim=-1).tolist()
 
-            # Convert predictions to labels, trimming to original sequence length
-            labels_batch = []
-            for preds, orig_len in zip(predictions, original_seq_lens):
-                labels = [ID2LABEL[p] for p in preds[:orig_len]]
-                labels_batch.append(labels)
+            labels_batch = [[ID2LABEL[p] for p in preds] for preds in predictions]
 
             # Store results
             for j, labels in enumerate(labels_batch):
@@ -517,36 +502,27 @@ class InferenceModel:
             if k != "offset_mapping"
         }
 
-        # IMPORTANT: The model was trained on sequences padded to max_length with all-1s
-        # attention masks. To match training behavior, we must:
-        # 1. Pad input sequences to max_length
-        # 2. Use all-1s attention mask for the encoder (so it attends to PAD tokens)
-        # 3. Track original sequence length to return only real token predictions
+        # Pad to max_length if needed (to match training preprocessing)
         max_length = self.loader.max_length
         input_ids = inputs_on_device.get("input_ids")
-        original_attention_mask = inputs_on_device.get("attention_mask")
 
-        # Determine original sequence length (before any padding)
-        # Use attention_mask sum if available, otherwise use input_ids shape
-        if original_attention_mask is not None:
-            original_seq_len = int(original_attention_mask.sum().item())
-        else:
-            original_seq_len = input_ids.shape[1] if input_ids is not None else 0
-
-        # Pad input_ids to max_length
         if input_ids is not None and input_ids.shape[1] < max_length:
-            pad_token_id = self.loader.tokenizer.pad_token_id or 0
+            pad_token_id = cast(int, self.loader.tokenizer.pad_token_id)
+            if pad_token_id is None:
+                raise ValueError("Tokenizer has no pad_token_id configured")
             pad_len = max_length - input_ids.shape[1]
+
             input_ids = torch.nn.functional.pad(
                 input_ids, (0, pad_len), value=pad_token_id
             )
             inputs_on_device["input_ids"] = input_ids
 
-        # Create all-1s attention mask for encoder (to match training preprocessing)
-        if input_ids is not None:
-            inputs_on_device["attention_mask"] = torch.ones(
-                input_ids.shape, dtype=torch.long, device=input_ids.device
-            )
+            attention_mask = inputs_on_device.get("attention_mask")
+            if attention_mask is not None:
+                attention_mask = torch.nn.functional.pad(
+                    attention_mask, (0, pad_len), value=0
+                )
+                inputs_on_device["attention_mask"] = attention_mask
 
         call_model = cast(Callable, self.model)
         with torch.no_grad():
@@ -555,21 +531,19 @@ class InferenceModel:
 
         # Check if model has CRF layer
         if hasattr(self.model, "decode"):
-            # Use all-1s mask for CRF decode to get full sequence predictions
             attention_mask = inputs_on_device["attention_mask"]
             if attention_mask is not None and not isinstance(
                 attention_mask, ByteTensor
             ):
-                attention_mask = cast(ByteTensor, attention_mask.byte())
+                attention_mask = cast(
+                    ByteTensor, attention_mask.byte()
+                )  # Preserves device (GPU/CPU)
             predictions = cast(CRF, self.model).decode(logits, attention_mask)[
                 0
             ]  # First in batch
-            # Return only predictions for original sequence (exclude padding)
-            predictions = predictions[:original_seq_len]
         else:
             # argmax for softmax decoding
             predictions = logits.argmax(dim=-1).squeeze().tolist()
-            predictions = predictions[:original_seq_len]
 
         labels = [ID2LABEL[p] for p in predictions]
         return labels

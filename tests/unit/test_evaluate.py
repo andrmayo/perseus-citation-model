@@ -1,12 +1,10 @@
 """Unit tests for evaluation module."""
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, mock_open, patch
+from unittest.mock import Mock, patch
 
 import pytest
 import torch
-import transformers
 
 from perscit_model.extraction.evaluate import (
     evaluate_model,
@@ -62,7 +60,7 @@ class TestExtractCitations:
 
     def test_extract_nested_tags(self):
         """Test extracting citations with nested XML tags."""
-        xml = "See <bibl n=\"test\">Smith <foreign>et al.</foreign> 2020</bibl>."
+        xml = 'See <bibl n="test">Smith <foreign>et al.</foreign> 2020</bibl>.'
         result = extract_citations(xml)
 
         assert len(result["bibl"]) == 1
@@ -209,6 +207,7 @@ class TestGroundTruthLabelGeneration:
 
         # Extract citation from original XML
         import re
+
         bibl_pattern = re.compile(r"<bibl[^>]*>(.*?)</bibl>", re.DOTALL)
         for match in bibl_pattern.finditer(original_xml):
             citation_text = match.group(1)  # "a citation"
@@ -257,6 +256,7 @@ class TestGroundTruthLabelGeneration:
 
         # Label BIBL
         import re
+
         bibl_pattern = re.compile(r"<bibl[^>]*>(.*?)</bibl>", re.DOTALL)
         for match in bibl_pattern.finditer(original_xml):
             citation_text = match.group(1)
@@ -298,7 +298,6 @@ class TestGroundTruthLabelGeneration:
 
     def test_no_citations_all_labels_O(self, mock_tokenizer):
         """Test that text with no citations gets all O labels."""
-        original_xml = "This is plain text."
         stripped_text = "This is plain text."
 
         result = mock_tokenizer(
@@ -334,6 +333,7 @@ class TestGroundTruthLabelGeneration:
 
         # Try to find citation
         import re
+
         bibl_pattern = re.compile(r"<bibl[^>]*>(.*?)</bibl>", re.DOTALL)
         for match in bibl_pattern.finditer(original_xml):
             citation_text = match.group(1)
@@ -345,7 +345,9 @@ class TestGroundTruthLabelGeneration:
                     if token_start == token_end:
                         continue
                     if token_start >= start_pos and token_end <= end_pos:
-                        true_labels[i] = "B-BIBL" if token_start == start_pos else "I-BIBL"
+                        true_labels[i] = (
+                            "B-BIBL" if token_start == start_pos else "I-BIBL"
+                        )
 
         # Citation wasn't in stripped text, so all labels should still be "O"
         assert all(label == "O" for label in true_labels)
@@ -387,7 +389,9 @@ class TestMetricsComputation:
         from seqeval.metrics import f1_score
 
         true_labels = [["O", "B-BIBL", "I-BIBL", "O", "B-QUOTE", "I-QUOTE", "O"]]
-        predictions = [["O", "B-BIBL", "I-BIBL", "O", "O", "O", "O"]]  # Got BIBL, missed QUOTE
+        predictions = [
+            ["O", "B-BIBL", "I-BIBL", "O", "O", "O", "O"]
+        ]  # Got BIBL, missed QUOTE
 
         f1 = f1_score(true_labels, predictions)
 
@@ -454,9 +458,11 @@ class TestDatasetCreationForEvaluation:
         """Test that evaluation uses create_extraction_dataset like training does."""
         output_dir = tmp_path / "output"
 
-        with patch('perscit_model.extraction.evaluate.create_extraction_dataset') as mock_create:
-            with patch('perscit_model.extraction.evaluate.InferenceModel'):
-                with patch('perscit_model.extraction.evaluate.ExtractionDataLoader'):
+        with patch(
+            "perscit_model.extraction.evaluate.create_extraction_dataset"
+        ) as mock_create:
+            with patch("perscit_model.extraction.evaluate.InferenceModel"):
+                with patch("perscit_model.extraction.evaluate.ExtractionDataLoader"):
                     # Mock dataset with expected structure
                     mock_dataset = [
                         {
@@ -464,7 +470,7 @@ class TestDatasetCreationForEvaluation:
                             "attention_mask": [1, 1, 1, 1],
                             "labels": [0, 1, 2, 0],
                             "xml_context": "test",
-                            "filename": "test1.xml"
+                            "filename": "test1.xml",
                         },
                     ]
                     mock_create.return_value = mock_dataset
@@ -485,13 +491,17 @@ class TestDatasetCreationForEvaluation:
                     call_args = mock_create.call_args
                     assert str(mock_test_data) in str(call_args[0][0])
 
-    def test_ground_truth_labels_from_dataset_not_manual_parsing(self, tmp_path, mock_test_data):
+    def test_ground_truth_labels_from_dataset_not_manual_parsing(
+        self, tmp_path, mock_test_data
+    ):
         """Test that ground truth labels come from dataset, not manual XML parsing."""
         output_dir = tmp_path / "output"
 
-        with patch('perscit_model.extraction.evaluate.create_extraction_dataset') as mock_create:
-            with patch('perscit_model.extraction.evaluate.InferenceModel'):
-                with patch('perscit_model.extraction.evaluate.ExtractionDataLoader'):
+        with patch(
+            "perscit_model.extraction.evaluate.create_extraction_dataset"
+        ) as mock_create:
+            with patch("perscit_model.extraction.evaluate.InferenceModel"):
+                with patch("perscit_model.extraction.evaluate.ExtractionDataLoader"):
                     # Create mock dataset with specific labels
                     expected_labels = [-100, 0, 1, 2, 0, -100]
                     mock_dataset = [
@@ -500,7 +510,7 @@ class TestDatasetCreationForEvaluation:
                             "attention_mask": [1, 1, 1, 1, 1, 0],
                             "labels": expected_labels,
                             "xml_context": "test",
-                            "filename": "test1.xml"
+                            "filename": "test1.xml",
                         },
                     ]
                     mock_create.return_value = mock_dataset
@@ -526,7 +536,7 @@ class TestDatasetCreationForEvaluation:
         test_xml = "This is <bibl>a test citation</bibl> in text."
 
         # Simulate what evaluation does (via create_extraction_dataset)
-        with patch('perscit_model.extraction.data_loader.ExtractionDataLoader'):
+        with patch("perscit_model.extraction.data_loader.ExtractionDataLoader"):
             # Both training and evaluation should use create_extraction_dataset
             # This ensures identical tokenization
             pass  # Actual test would create dataset and verify structure
@@ -615,7 +625,16 @@ class TestPredictionAndLabelAlignment:
     def test_label_filtering_removes_padding_and_special_tokens(self):
         """Test that label filtering correctly removes padding and special tokens."""
         # Simulate sequence with CLS, SEP, and padding
-        ground_truth_labels = [-100, 0, 1, 2, 0, -100, -100, -100]  # CLS, tokens, SEP, padding
+        ground_truth_labels = [
+            -100,
+            0,
+            1,
+            2,
+            0,
+            -100,
+            -100,
+            -100,
+        ]  # CLS, tokens, SEP, padding
         attention_mask = [1, 1, 1, 1, 1, 1, 0, 0]  # Last 2 are padding
 
         # Get actual sequence length (excluding padding)
@@ -661,9 +680,9 @@ class TestEvaluateModelIntegration:
         output_dir = tmp_path / "new_output_dir"
         assert not output_dir.exists()
 
-        with patch('perscit_model.extraction.data_loader.create_extraction_dataset'):
-            with patch('perscit_model.extraction.evaluate.InferenceModel'):
-                with patch('perscit_model.extraction.evaluate.ExtractionDataLoader'):
+        with patch("perscit_model.extraction.data_loader.create_extraction_dataset"):
+            with patch("perscit_model.extraction.evaluate.InferenceModel"):
+                with patch("perscit_model.extraction.evaluate.ExtractionDataLoader"):
                     try:
                         evaluate_model(
                             model_path=None,

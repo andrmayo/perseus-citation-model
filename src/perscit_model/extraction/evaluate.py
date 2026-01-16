@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 import torch
 import transformers
@@ -192,7 +192,9 @@ def evaluate_model(
             attention_mask = batch_inputs["attention_mask"]
             if not isinstance(attention_mask, torch.ByteTensor):
                 attention_mask = attention_mask.byte()
-            predictions = model.model.decode(outputs.logits, attention_mask)
+            predictions = cast(Callable, model.model.decode)(
+                outputs.logits, attention_mask
+            )
         else:
             predictions = outputs.logits.argmax(dim=-1).cpu().tolist()
 

@@ -1,6 +1,7 @@
 # Perseus Citation Model
 
-Machine learning models for identifying citation structures in classical texts and resolving bibliographic references to canonical URNs.
+Machine learning models for identifying citation structures in classical texts
+and resolving bibliographic references to canonical URNs.
 
 Current README largely contains notes for my own use.
 
@@ -43,24 +44,29 @@ pip install -e ".[dev]"
 - `accelerate` - Distributed training and mixed precision
 - `seqeval` - BIO tagging evaluation metrics
 - `tiktoken` - OpenAI tokenizer utilities
+- `typer` - CLI
 - `pytest` + `pytest-mock` - Testing (dev dependency)
 - `jupyter` + `ipykernel` - Notebook support (dev dependency)
 
 ## Overview
 
-This project provides two complementary ML tasks for working with citations in TEI-encoded XML documents from the Perseus Digital Library:
+This project provides two complementary ML tasks for working with citations in
+TEI-encoded XML documents from the Perseus Digital Library:
 
-1. **Tag Extraction**: Identify and extract citation tags (`<cit>`, `<quote>`, `<bibl>`) from plain text
-2. **URN Resolution**: Map bibliographic references to Canonical Text Services (CTS) URNs
+1. **Tag Extraction**: Identify and extract citation tags (`<cit>`, `<quote>`,
+   `<bibl>`) from plain text
+2. **URN Resolution**: Map bibliographic references to Canonical Text Services
+   (CTS) URNs
 
-Both tasks share data pipelines and preprocessing infrastructure but use different model architectures appropriate to each problem.
+Both tasks share data pipelines and preprocessing infrastructure but use
+different model architectures appropriate to each problem.
 
 ## Task Definitions
 
 ### Task 1: Tag Extraction
 
-**Input:** Plain text extracted from TEI XML documents
-**Output:** Token-level tags identifying citation boundaries
+**Input:** Plain text extracted from TEI XML documents **Output:** Token-level
+tags identifying citation boundaries
 
 **Target tags:**
 
@@ -68,8 +74,8 @@ Both tasks share data pipelines and preprocessing infrastructure but use differe
 - `<quote>` - Quoted text
 - `<bibl>` - Bibliographic reference
 
-_Note_ `<cit>` tags surround a quote-bibl pair, so can simply be inserted logically
-once `<bibl>` and `<quote>` elements have been identified
+_Note_ `<cit>` tags surround a quote-bibl pair, so can simply be inserted
+logically once `<bibl>` and `<quote>` elements have been identified
 
 **Challenges:**
 
@@ -79,8 +85,8 @@ once `<bibl>` and `<quote>` elements have been identified
 
 ### Task 2: URN Resolution
 
-**Input:** Bibliographic reference text (e.g., "Hdt. 8.82")
-**Output:** CTS URN (e.g., "urn:cts:greekLit:tlg0016.tlg001.perseus-grc2:8.82")
+**Input:** Bibliographic reference text (e.g., "Hdt. 8.82") **Output:** CTS URN
+(e.g., "urn:cts:greekLit:tlg0016.tlg001.perseus-grc2:8.82")
 
 **Examples:**
 
@@ -146,7 +152,8 @@ Training data is in JSONL format with two files:
 
 ### Overview
 
-Fine-tune a pre-trained transformer model (DeBERTa) for sequence labeling using BIO tagging.
+Fine-tune a pre-trained transformer model (DeBERTa) for sequence labeling using
+BIO tagging.
 
 ### Architecture
 
@@ -175,14 +182,16 @@ Tags:     B-BIBL I-BIBL I-BIBL I-BIBL I-BIBL I-BIBL O B-QUOTE I-QUOTE I-QUOTE I-
 
 ### Model Selection
 
-Currently, the project uses **`microsoft/deberta-v3-base`** - for the following reasons:
+Currently, the project uses **`microsoft/deberta-v3-base`** - for the following
+reasons:
 
 - Superior contextual understanding for nested structures
 - Better multilingual handling (Greek, Latin, English)
 - State-of-the-art performance on token classification
 - 1-3% F1 improvement over RoBERTa on similar tasks
 
-One alternative that might be worth trying is **`roberta-base`** - Good alternative if:
+One alternative that might be worth trying is **`roberta-base`** - Good
+alternative if:
 
 - Need faster inference (~10-15% faster than DeBERTa)
 - Memory constraints
@@ -197,8 +206,10 @@ One alternative that might be worth trying is **`roberta-base`** - Good alternat
 1. **No word alignment** - Special tokens handle tag boundaries
 2. **Simpler labels** - Generated automatically from special token positions
 3. **Malformed XML handling** - BeautifulSoup repairs broken tags
-4. **Nested tags** - State machine tracks most recent tag (special tokens remain visible)
-5. **Special tokens stripped** - After label generation, special tokens are removed from input so model doesn't see them during training
+4. **Nested tags** - State machine tracks most recent tag (special tokens remain
+   visible)
+5. **Special tokens stripped** - After label generation, special tokens are
+   removed from input so model doesn't see them during training
 
 ### Pros
 
@@ -220,7 +231,8 @@ One alternative that might be worth trying is **`roberta-base`** - Good alternat
 
 ### Overview
 
-Combine transformer contextual embeddings with a Conditional Random Field (CRF) layer to ensure valid tag sequences.
+Combine transformer contextual embeddings with a Conditional Random Field (CRF)
+layer to ensure valid tag sequences.
 
 ### Architecture
 
@@ -307,7 +319,8 @@ clean_input_ids, aligned_labels = loader.strip_special_tokens_and_align_labels(
 
 ### Dataset Splitting
 
-The training pipeline automatically splits data by filename to prevent data leakage:
+The training pipeline automatically splits data by filename to prevent data
+leakage:
 
 ```python
 from perscit_model.extraction.train import split_data
@@ -429,7 +442,9 @@ print(classification_report([ground_truth], [predictions]))
 
 ## Processing Full XML Documents
 
-The extraction model was trained on 512-token windows centered around citations. To process full XML documents that exceed this context window, we need a sliding window approach with special handling for:
+The extraction model was trained on 512-token windows centered around citations.
+To process full XML documents that exceed this context window, we need a sliding
+window approach with special handling for:
 
 1. **Context window boundaries** (avoiding edge effects)
 2. **Split entities** (citations spanning multiple windows)
@@ -438,9 +453,11 @@ The extraction model was trained on 512-token windows centered around citations.
 
 ### Sliding Window Strategy: "Reliable Center" Method
 
-**Problem**: Citations near window edges may lack sufficient context, reducing prediction quality.
+**Problem**: Citations near window edges may lack sufficient context, reducing
+prediction quality.
 
-**Solution**: Process with overlapping windows, but only trust predictions from the center region.
+**Solution**: Process with overlapping windows, but only trust predictions from
+the center region.
 
 **Algorithm**:
 
@@ -450,11 +467,14 @@ The extraction model was trained on 512-token windows centered around citations.
    - Reliable region: Center 256 tokens of each window
    - Exception: First and last windows trust predictions to document edges
 
-2. **Coverage guarantee**: Every position in the document appears in the center of at least one window
+2. **Coverage guarantee**: Every position in the document appears in the center
+   of at least one window
 
-3. **Handles split entities**: With 50% overlap, any entity < 256 tokens appears fully within some window's center
+3. **Handles split entities**: With 50% overlap, any entity < 256 tokens appears
+   fully within some window's center
 
 **Example**:
+
 ```
 Document: [============================]
 Window 1:  [512 tokens]
@@ -487,36 +507,44 @@ Window 3:                [512 tokens]
    - Insert new predicted citations
 
 **Why this works**:
+
 - Model sees natural context around existing citations
 - Simple conflict resolution (existing citations take precedence)
 - Can later extend to more sophisticated merge strategies
 
 ### Character-Level Label Merging
 
-**Problem**: Overlapping windows produce multiple predictions for the same tokens.
+**Problem**: Overlapping windows produce multiple predictions for the same
+tokens.
 
-**Solution**: Merge predictions at the character level, only using reliable regions.
+**Solution**: Merge predictions at the character level, only using reliable
+regions.
 
 **Algorithm**:
 
-1. **Initialize**: Create character-level label array: `char_labels = ['O'] * len(text)`
+1. **Initialize**: Create character-level label array:
+   `char_labels = ['O'] * len(text)`
 
 2. **For each window**:
    - Get token-level predictions from model
    - Convert to character-level using tokenizer offset mapping
-   - Determine reliable character range (e.g., chars corresponding to tokens 128-384)
+   - Determine reliable character range (e.g., chars corresponding to tokens
+     128-384)
    - Update `char_labels` only in the reliable region
 
-3. **Extract entities**: Convert final `char_labels` to entity spans using BIO logic
+3. **Extract entities**: Convert final `char_labels` to entity spans using BIO
+   logic
 
 **Advantages**:
+
 - Handles split entities automatically (continuous character regions)
 - Clean merging of overlapping predictions
 - No special logic needed for window boundaries
 
 ### Wrapping bibl-quote Pairs in `<cit>` Tags
 
-**Recall**: The model doesn't predict `<cit>` tags (no training examples). These must be inserted logically.
+**Recall**: The model doesn't predict `<cit>` tags (no training examples). These
+must be inserted logically.
 
 **Pattern matching algorithm**:
 
@@ -534,6 +562,7 @@ Window 3:                [512 tokens]
    - Preserve whitespace and other tags between elements
 
 **Example**:
+
 ```xml
 Before: See <bibl>Hdt. 8.82</bibl>: <quote>Ajax hurled a rock</quote> for details.
 After:  See <cit><bibl>Hdt. 8.82</bibl>: <quote>Ajax hurled a rock</quote></cit> for details.
@@ -571,10 +600,12 @@ class XMLCitationProcessor:
 ```
 
 **Key parameters**:
+
 - `window_size`: Token length of each window (default: 512)
 - `stride`: Token overlap between windows (default: 256)
 - `preserve_existing`: Keep existing citation tags (default: True)
-- `max_bibl_quote_distance`: Max chars between bibl/quote for wrapping (default: 100)
+- `max_bibl_quote_distance`: Max chars between bibl/quote for wrapping
+  (default: 100)
 
 ---
 
@@ -610,17 +641,22 @@ class XMLCitationProcessor:
 
 ## Overview
 
-URN resolution maps bibliographic reference strings to Canonical Text Services (CTS) URNs. This is a different ML problem from tag extraction - it's a **structured prediction** or **sequence-to-sequence** task rather than token classification.
+URN resolution maps bibliographic reference strings to Canonical Text Services
+(CTS) URNs. This is a different ML problem from tag extraction - it's a
+**structured prediction** or **sequence-to-sequence** task rather than token
+classification.
 
 ## Recommended Approaches
 
 ### Approach 1: Rule-based + Hierarchical Classification (Recommended)
 
-**Strategy:** Use perseus-citation-processor for 87.6% of cases, hierarchical DNN classifiers for the remaining 12.4%.
+**Strategy:** Use perseus-citation-processor for 87.6% of cases, hierarchical
+DNN classifiers for the remaining 12.4%.
 
 **Advantages:**
 
-- **Guaranteed valid URNs** - classification over known catalog, no hallucination
+- **Guaranteed valid URNs** - classification over known catalog, no
+  hallucination
 - **Interpretable** - see which stage (author/work) succeeded or failed
 - **Efficient** - small vocabularies (~500 authors, ~50 works per author)
 - **High precision** - rule-based handles well-formatted citations (87.6%)
@@ -648,7 +684,8 @@ Assemble: "urn:cts:greekLit:tlg0016.tlg001.perseus-grc2:8.82"
 
 1. **Rule-based baseline**: perseus-citation-processor (Go binary)
 2. **Author classifier**: DeBERTa classification over ~500 Greek/Latin authors
-3. **Work classifier**: DeBERTa classification over works (conditioned on author)
+3. **Work classifier**: DeBERTa classification over works (conditioned on
+   author)
 4. **Passage parser**: Rule-based extraction of passage references
 5. **Edition selector**: Rule-based (Greek quote → grc, Latin quote → lat)
 6. **Confidence scorer**: DeBERTa binary classifier for quality control
@@ -667,7 +704,8 @@ Assemble: "urn:cts:greekLit:tlg0016.tlg001.perseus-grc2:8.82"
 
 **When to consider:**
 
-- If you need to handle completely new authors not in any catalog (unlikely for classical texts)
+- If you need to handle completely new authors not in any catalog (unlikely for
+  classical texts)
 - If you want to experiment with end-to-end learning
 - As a baseline to compare against hierarchical classification
 
@@ -738,7 +776,9 @@ This implementation uses:
 
 ### Foundation: perseus-citation-processor
 
-This project uses the **[perseus-citation-processor](https://github.com/andrewbird2/perseus-citation-processor)** as the rule-based foundation:
+This project uses the
+**[perseus-citation-processor](https://github.com/andrewbird2/perseus-citation-processor)**
+as the rule-based foundation:
 
 **Performance on 246K citations:**
 
@@ -779,7 +819,8 @@ Yes→Output  Merge→Output
 **Why Classification over Seq2Seq:**
 
 - **URNs are structured catalog lookups**, not creative text
-- **Guaranteed valid outputs** - cannot hallucinate invalid author/work combinations
+- **Guaranteed valid outputs** - cannot hallucinate invalid author/work
+  combinations
 - **Interpretable** - see exactly which stage succeeded/failed
 - **Efficient** - small vocabulary (~500 authors × ~50 works = 25K combinations)
 - **Better uncertainty handling** - top-k predictions at each stage
@@ -984,7 +1025,8 @@ work_examples = [
 
 **Purpose:** Identify incorrect resolutions from perseus-citation-processor.
 
-**Problem:** From perseus-citation-processor README: "just because the processor resolves a citation doesn't mean that it resolves it correctly"
+**Problem:** From perseus-citation-processor README: "just because the processor
+resolves a citation doesn't mean that it resolves it correctly"
 
 **Model:** DeBERTa-based Binary Classifier
 
@@ -1304,7 +1346,8 @@ with open("cit_data/resolved.jsonl") as f:
 
 ## Data Split Considerations
 
-Unlike tag extraction, URN resolution should be split by **unique citation patterns** rather than documents to test generalization:
+Unlike tag extraction, URN resolution should be split by **unique citation
+patterns** rather than documents to test generalization:
 
 - Test on unseen author abbreviations
 - Test on unseen work titles
@@ -1339,11 +1382,13 @@ Unlike tag extraction, URN resolution should be split by **unique citation patte
 1. **Integration:** Wrap perseus-citation-processor as Python callable
 2. **Baseline metrics:** Establish 87.6% resolution rate on 216K citations
 3. **Error analysis:** Analyze 30K unresolved.jsonl patterns
-4. **Catalog extraction:** Load author/work URNs from perseus-citation-processor data
+4. **Catalog extraction:** Load author/work URNs from perseus-citation-processor
+   data
 
 **Phase 2: Hierarchical Classifiers (Week 3-5)**
 
-1. **Catalog extraction:** Extract author/work vocabularies from resolved.jsonl URNs
+1. **Catalog extraction:** Extract author/work vocabularies from resolved.jsonl
+   URNs
 2. **Train author classifier:** DeBERTa classification over ~500 authors
    - Input: citation + context
    - Output: author URN (e.g., tlg0016)
@@ -1430,13 +1475,18 @@ perseus-citation-model/
 
 ### Extraction Data Pipeline (Special Tokens Approach)
 
-Instead of word-level BIO tagging with complex alignment, we use **special tokens**:
+Instead of word-level BIO tagging with complex alignment, we use **special
+tokens**:
 
-1. **XML → Special Tokens**: Replace `<bibl>`, `<quote>`, `<cit>` tags with `[BIBL_START]`, `[BIBL_END]`, etc.
-2. **Add to Vocabulary**: Special tokens added to DeBERTa tokenizer (won't be split)
+1. **XML → Special Tokens**: Replace `<bibl>`, `<quote>`, `<cit>` tags with
+   `[BIBL_START]`, `[BIBL_END]`, etc.
+2. **Add to Vocabulary**: Special tokens added to DeBERTa tokenizer (won't be
+   split)
 3. **Tokenize**: DeBERTa tokenizes text with special tokens intact
-4. **Generate BIO Labels**: State machine generates labels based on special token positions
-5. **Strip Special Tokens**: Remove special tokens from input while keeping labels aligned
+4. **Generate BIO Labels**: State machine generates labels based on special
+   token positions
+5. **Strip Special Tokens**: Remove special tokens from input while keeping
+   labels aligned
 
 **Example:**
 
@@ -1453,7 +1503,9 @@ Final Tokens: [CLS] Hdt . 8 . 82 some context [SEP]
 Final Labels: -100  B-  I- I- I- I- O    O       -100
 ```
 
-**Key point:** The model sees only `[CLS] Hdt . 8 . 82 some context [SEP]` during training, NOT the special tokens. It must learn to predict citation boundaries from the context alone.
+**Key point:** The model sees only `[CLS] Hdt . 8 . 82 some context [SEP]`
+during training, NOT the special tokens. It must learn to predict citation
+boundaries from the context alone.
 
 **Advantages over word-level alignment:**
 
@@ -1468,7 +1520,8 @@ Final Labels: -100  B-  I- I- I- I- O    O       -100
 
 - Base DeBERTa vocab: 128,000 tokens
 - +6 special tokens = 128,006 tokens
-- New embeddings initialized to **mean of existing embeddings** (training stability)
+- New embeddings initialized to **mean of existing embeddings** (training
+  stability)
 
 ### Testing
 
@@ -1496,8 +1549,10 @@ Raw Text → Tag Extraction → URN Resolution → Structured Citations
 **Example workflow:**
 
 1. **Input**: "Homer mentions this in Il. 7.268-272: 'Ajax hurled a rock'"
-2. **Tag Extraction**: Identify `<bibl>Il. 7.268-272</bibl>` and `<quote>Ajax hurled a rock</quote>`
-3. **URN Resolution**: Map "Il. 7.268-272" → "urn:cts:greekLit:tlg0012.tlg001.perseus-grc2:7.268"
+2. **Tag Extraction**: Identify `<bibl>Il. 7.268-272</bibl>` and
+   `<quote>Ajax hurled a rock</quote>`
+3. **URN Resolution**: Map "Il. 7.268-272" →
+   "urn:cts:greekLit:tlg0012.tlg001.perseus-grc2:7.268"
 4. **Output**: Structured citation with linked canonical reference
 
 This enables:
@@ -1519,7 +1574,8 @@ This enables:
 
 **Tag Extraction:**
 
-- HuggingFace Token Classification: <https://huggingface.co/docs/transformers/tasks/token_classification>
+- HuggingFace Token Classification:
+  <https://huggingface.co/docs/transformers/tasks/token_classification>
 - pytorch-crf: <https://github.com/kmkurn/pytorch-crf>
 - seqeval metrics: <https://github.com/chakki-works/seqeval>
 - DeBERTa paper: <https://arxiv.org/abs/2006.03654>
@@ -1530,5 +1586,6 @@ This enables:
 - Hierarchical classification: <https://arxiv.org/abs/1904.02817>
 - CTS URN Specification: <http://cite-architecture.github.io/cts_spec/>
 - CTS API documentation: <http://cite-architecture.github.io/cts/>
-- perseus-citation-processor: <https://github.com/andrewbird2/perseus-citation-processor>
+- perseus-citation-processor:
+  <https://github.com/andrewbird2/perseus-citation-processor>
 - Fuzzy string matching: <https://github.com/seatgeek/fuzzywuzzy>

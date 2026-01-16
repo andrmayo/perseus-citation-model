@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from perscit_model.extraction.train import compute_metrics, split_data
+from perscit_model.extraction.train import make_compute_metrics, split_data
 
 
 class TestSplitData:
@@ -298,7 +298,12 @@ learning_rate: 3e-5
 class TestComputeMetrics:
     """Tests for the compute_metrics function."""
 
-    def test_compute_metrics_perfect_predictions(self):
+    @pytest.fixture
+    def compute_metrics(self):
+        """Create compute_metrics function without CRF (uses argmax)."""
+        return make_compute_metrics(model=None)
+
+    def test_compute_metrics_perfect_predictions(self, compute_metrics):
         """Test metrics with perfect predictions."""
         # Create mock eval_pred tuple
         # predictions shape: (batch_size, seq_len, num_labels)
@@ -327,7 +332,7 @@ class TestComputeMetrics:
         assert metrics["recall"] == 1.0
         assert metrics["f1"] == 1.0
 
-    def test_compute_metrics_ignores_special_tokens(self):
+    def test_compute_metrics_ignores_special_tokens(self, compute_metrics):
         """Test that -100 labels are ignored."""
         # predictions shape: (batch_size, seq_len, num_labels)
         predictions = np.array(
@@ -350,7 +355,7 @@ class TestComputeMetrics:
         # Labels for positions 1,2: [1, 0]
         assert metrics["accuracy"] == 1.0
 
-    def test_compute_metrics_returns_correct_keys(self):
+    def test_compute_metrics_returns_correct_keys(self, compute_metrics):
         """Test that compute_metrics returns all expected keys."""
         predictions = np.array([[[0.9, 0.1], [0.1, 0.9]]])
         labels = np.array([[0, 1]])
@@ -364,7 +369,7 @@ class TestComputeMetrics:
         assert "recall" in metrics
         assert "f1" in metrics
 
-    def test_compute_metrics_with_bio_tags(self):
+    def test_compute_metrics_with_bio_tags(self, compute_metrics):
         """Test metrics with realistic BIO tag predictions."""
         # Simulate 3-class BIO tagging: O=0, B-BIBL=1, I-BIBL=2
         # Sequence: O B-BIBL I-BIBL O

@@ -68,7 +68,7 @@ def setup_cli(
     elif quiet:
         level = logging.CRITICAL
     else:
-        level = logging.WARNING
+        level = logging.ERROR
 
     # Clear existing handler
     for handler in logging.root.handlers[:]:

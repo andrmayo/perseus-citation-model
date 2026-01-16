@@ -29,7 +29,7 @@ def mock_loader():
     tokenizer.sep_token_id = 102
     tokenizer.pad_token_id = 0
     loader.tokenizer = tokenizer
-    loader.max_length = 512  # Required for padding in predict/process_batch
+    loader.max_length = 512
     return loader
 
 
@@ -164,22 +164,25 @@ class TestProcessBatch:
         texts = ["x" * 10000]  # Very long text
 
         # Mock tokenizer to return truncated sequence at max_length
-        max_len = mock_inference_model.loader.max_length
+        max_length = mock_inference_model.loader.max_length
         mock_inference_model.loader.tokenizer.return_value = {
-            "input_ids": torch.tensor([[1] * max_len]),  # Truncated to max_length
-            "attention_mask": torch.tensor([[1] * max_len]),
-            "offset_mapping": torch.tensor([[(0, 1)] * max_len]),
+            "input_ids": torch.tensor([[1] * max_length]),
+            "attention_mask": torch.tensor([[1] * max_length]),
+            "offset_mapping": torch.tensor([[(0, 1)] * max_length]),
         }
 
         # Mock model output
-        mock_logits = torch.tensor([[[0.1, 0.9, 0.0]] * max_len])
+        mock_logits = torch.tensor([[[0.1, 0.9, 0.0]] * max_length])
         mock_output = Mock()
         mock_output.logits = mock_logits
         mock_inference_model.model.return_value = mock_output
 
-        # Should not raise, just truncate
         results = mock_inference_model.process_batch(texts)
+
+        # Should succeed with truncated input
         assert len(results) == 1
+        encoding, labels = results[0]
+        assert len(labels) == max_length
 
     def test_process_batch_moves_inputs_to_device(self, mock_inference_model):
         """Test that inputs are moved to the correct device."""

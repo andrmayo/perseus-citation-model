@@ -38,7 +38,7 @@ class CitationTagger:
     def __init__(
         self,
         model_path: str | Path,
-        window_size: int = 500,
+        window_size: int | None = None,
         stride: int | None = None,
         center: int | None = None,
         device: str | None = None,
@@ -47,19 +47,19 @@ class CitationTagger:
         """
         Args:
             model_path: path to model to load
-            window_size: Maximum tokens per window. Default 500 (not 512) because the model
-                requires some PAD tokens at the end for reliable predictions. Training data
-                had variable-length sequences padded to 512, so the model learned to use
-                PAD tokens as an end-of-sequence signal.
+            window_size: defaults to max_length from config (to match training)
             stride: number of tokens to shift context window by, by default half of the window size
             center: defaults to stride, which ensures that every token winds up in center for some window
         """
         self.inference_model = InferenceModel(model_path, **kwargs)
         self.inference_model.model.eval()
         self.loader: ExtractionDataLoader = self.inference_model.loader
-        self.window_size: int = window_size
-        # this ensures that every token windw up in the reliable center of context window
-        self.stride: int = stride if stride else window_size // 2
+        # Use config max_length if window_size not specified
+        self.window_size: int = (
+            window_size if window_size is not None else self.loader.max_length
+        )
+        # this ensures that every token winds up in the reliable center of context window
+        self.stride: int = stride if stride else self.window_size // 2
         self.center: int = center if center else self.stride
         # model in self.inference_model should have moved itself to GPU if available
         if device is None:
@@ -174,6 +174,9 @@ class CitationTagger:
                 in_entity = False
                 last_label = "O"
                 last_end = 0
+                # Track window boundary issues to suppress redundant warnings
+                # (with CRF, invalid BIO sequences only occur at window boundaries)
+                boundary_issue_active = False
 
                 for label, (start, end) in zip(labels, offset_mapping):
                     # This handles special tokens
@@ -184,17 +187,19 @@ class CitationTagger:
                     # things happen with unicode normalization
                     start = max(start, last_end)
 
-                    # Deal with invalid prediction
+                    # Deal with invalid prediction (I- without preceding B-)
                     if not in_entity and label[0] == "I":
-                        logger.warning(
-                            f"Invalid: {label} without 'B-' label and with preceding context {''.join(new_xml[-50:])}"
-                        )
+                        if not boundary_issue_active:
+                            logger.warning(
+                                f"Invalid: {label} without 'B-' label and with preceding context {''.join(new_xml[-50:])}"
+                            )
+                            boundary_issue_active = True
                         label = "O"
 
                     if label == "O":
                         if in_entity:
-                            assert last_label != "O"
-                            new_xml.append(f"[{last_label}_END]")
+                            if last_label != "O":
+                                new_xml.append(f"[{last_label}_END]")
                             in_entity = False
 
                         if start > last_end:
@@ -202,28 +207,34 @@ class CitationTagger:
                         new_xml.append(xml_content[start:end])
                         last_label = "O"
                         last_end = end
+                        boundary_issue_active = False
                         continue
 
                     label_type, label_name = label.split("-")
                     if label_type == "B":
                         if in_entity:
-                            assert last_label != "O"
-                            new_xml.append(f"[{last_label}_END]")
+                            if last_label != "O":
+                                new_xml.append(f"[{last_label}_END]")
                         if start > last_end:
                             new_xml.append(xml_content[last_end:start])
                         new_xml.extend(
                             [f"[{label_name}_START]", xml_content[start:end]]
                         )
                         in_entity = True
+                        boundary_issue_active = False
                     # label_type == "I"
                     else:
                         if label_name != last_label:
                             logger.warning(
                                 f"Invalid: I-{last_label} followed by I-{label_name} with preceding context {''.join(new_xml[-50:])}"
                             )
-                            assert last_label != "O"
-                            new_xml.append(f"[{last_label}_END]")
+                            boundary_issue_active = True
+                            # If we were in an entity, close it first
+                            if last_label != "O":
+                                new_xml.append(f"[{last_label}_END]")
+                            # Treat this orphan I- as O (can't continue non-existent entity)
                             label_name = "O"
+                            in_entity = False
                         if start > last_end:
                             new_xml.append(xml_content[last_end:start])
                         new_xml.append(xml_content[start:end])
@@ -233,8 +244,7 @@ class CitationTagger:
 
                 # This really shouldn't be applicable, but just in case a snippet is passed
                 # in that ends with a predicted tag:
-                if in_entity:
-                    assert last_label != "O"
+                if in_entity and last_label != "O":
                     new_xml.append(f"[{last_label}_END]")
 
                 new_xml = CitationTagger._fix_malformed_predictions(new_xml)
@@ -350,6 +360,25 @@ class CitationTagger:
         input_ids = flatten_tensor(input_ids, "input_ids")
         attention_mask = flatten_tensor(attention_mask, "attention_mask")
 
+        # Store original length before padding (for final output)
+        original_n_tokens = len(input_ids)
+
+        # Pad input sequence at start and end so all windows can use center-only
+        # predictions (matching training where edge labels are masked)
+        edge_margin = self.loader.max_length // 4
+        pad_token_id = self.loader.tokenizer.pad_token_id
+        if pad_token_id is None:
+            raise ValueError("Tokenizer has no pad_token_id configured")
+        pad_token_id = cast(int, pad_token_id)
+
+        front_pad_ids = torch.full((edge_margin,), pad_token_id, dtype=input_ids.dtype)
+        front_pad_mask = torch.zeros(edge_margin, dtype=attention_mask.dtype)
+        back_pad_ids = torch.full((edge_margin,), pad_token_id, dtype=input_ids.dtype)
+        back_pad_mask = torch.zeros(edge_margin, dtype=attention_mask.dtype)
+
+        input_ids = torch.cat([front_pad_ids, input_ids, back_pad_ids])
+        attention_mask = torch.cat([front_pad_mask, attention_mask, back_pad_mask])
+
         # Step 1: Create windows
 
         if batch_size is None:
@@ -361,25 +390,25 @@ class CitationTagger:
         windows = []
         last_reliable_end = 0  # Track where the last window's reliable center ended
 
-        # Create sliding windows
+        # Create sliding windows over padded sequence
         n_tokens = len(input_ids)
         for window_start in range(0, n_tokens, self.stride):
             window_end = min(window_start + self.window_size, n_tokens)
 
-            # Calculate reliable center for this window
-            if window_end - window_start < self.window_size:
-                reliable_end = window_end
-            else:
-                if window_start == 0:
-                    reliable_end = self.stride + (self.window_size - self.stride) // 2
-                else:
-                    reliable_end = last_reliable_end + self.stride
+            # Uniform center calculation for all windows (no special cases)
+            reliable_start = last_reliable_end
+            reliable_end = min(reliable_start + self.stride, n_tokens)
+
+            # For first window, start from edge_margin (skip front padding)
+            if window_start == 0:
+                reliable_start = edge_margin
+                reliable_end = reliable_start + self.stride
 
             windows.append(
                 {
                     "start": window_start,
                     "end": window_end,
-                    "reliable_start": last_reliable_end,
+                    "reliable_start": reliable_start,
                     "reliable_end": reliable_end,
                     "input_ids": input_ids[window_start:window_end],
                     "attention_mask": attention_mask[window_start:window_end],
@@ -390,33 +419,33 @@ class CitationTagger:
         # Step 2: Predict on all windows in batches
         all_window_predictions = []
 
-        # Get max_length from loader (training used max_length padding)
-        target_length = self.loader.max_length
+        # Pad to max_length to match training preprocessing
+        max_len = self.loader.max_length
 
         for batch_start in range(0, len(windows), self.batch_size):
             batch_windows = windows[batch_start : batch_start + self.batch_size]
-
-            # Track original window lengths
-            window_lengths = [w["input_ids"].shape[0] for w in batch_windows]
-
-            # Pad windows to max_length (to match training preprocessing)
-            # Training data was padded to max_length with all-1s attention masks
-            pad_token_id = self.loader.tokenizer.pad_token_id or 0
 
             batch_input_ids = torch.stack(
                 [
                     torch.nn.functional.pad(
                         w["input_ids"],
-                        (0, target_length - w["input_ids"].shape[0]),
+                        (0, max_len - w["input_ids"].shape[0]),
                         value=pad_token_id,
                     )
                     for w in batch_windows
                 ]
             )
 
-            # IMPORTANT: Training data had all-1s attention masks after preprocessing.
-            # Create all-1s attention masks to match training behavior.
-            batch_attention_mask = torch.ones_like(batch_input_ids)
+            batch_attention_mask = torch.stack(
+                [
+                    torch.nn.functional.pad(
+                        w["attention_mask"],
+                        (0, max_len - w["attention_mask"].shape[0]),
+                        value=0,
+                    )
+                    for w in batch_windows
+                ]
+            )
 
             # Move to device and predict
             batch_input_ids = batch_input_ids.to(self.device)
@@ -430,13 +459,14 @@ class CitationTagger:
             # Use CRF Viterbi decode if available, otherwise argmax
             if hasattr(self.inference_model.model, "decode"):
                 # CRF decode returns list of lists (variable length per sequence)
+                byte_mask = batch_attention_mask.byte()
                 predictions = cast(Callable, self.inference_model.model.decode)(
-                    outputs.logits, batch_attention_mask
+                    outputs.logits, byte_mask
                 )
-                # Pad to tensor for consistent handling below
-                max_len = max(len(p) for p in predictions)
+                # Convert to tensor for consistent handling below
+                max_pred_len = max(len(p) for p in predictions)
                 predictions = torch.tensor(
-                    [p + [0] * (max_len - len(p)) for p in predictions],
+                    [p + [0] * (max_pred_len - len(p)) for p in predictions],
                     device="cpu",
                 )
             else:
@@ -449,7 +479,8 @@ class CitationTagger:
                 all_window_predictions.append(predictions[i, :window_length].cpu())
 
         # Step 3: Merge predictions using reliable centers
-        final_predictions = [None] * n_tokens
+        # Build predictions for the full padded sequence
+        padded_predictions = [None] * n_tokens
 
         for window, window_preds in zip(windows, all_window_predictions):
             # index within window
@@ -457,10 +488,13 @@ class CitationTagger:
             reliable_end_idx = window["reliable_end"] - window["start"]
 
             # Copy reliable predictions
-            final_predictions[window["reliable_start"] : window["reliable_end"]] = [
+            padded_predictions[window["reliable_start"] : window["reliable_end"]] = [
                 window_preds[i].item()
                 for i in range(reliable_start_idx, reliable_end_idx)
             ]
+
+        # Extract only the original tokens (skip front and back padding)
+        final_predictions = padded_predictions[edge_margin : edge_margin + original_n_tokens]
 
         def get_pred_label(pred_val: int | None) -> str:
             if pred_val is None:

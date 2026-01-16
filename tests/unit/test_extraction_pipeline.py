@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from perscit_model.extraction.data_loader import (
+    ALL_SPECIAL_TOKENS,
     LABEL2ID,
-    SPECIAL_TOKENS,
     ExtractionDataLoader,
     create_extraction_dataset,
 )
@@ -61,8 +61,8 @@ class TestExtractionPipeline:
         """Test that ExtractionDataLoader adds special tokens to tokenizer."""
         loader = ExtractionDataLoader()
 
-        # Should have added 4 special tokens (BIBL and QUOTE - CIT removed)
-        assert loader.special_tokens == SPECIAL_TOKENS
+        # Should have added 6 special tokens (CIT, BIBL, and QUOTE)
+        assert loader.special_tokens == ALL_SPECIAL_TOKENS
 
     def test_extraction_data_loader_processes_real_data(self, sample_data_path, mock_tokenizer):
         """Test that loader can process real citation data."""
@@ -229,13 +229,13 @@ class TestExtractionPipeline:
 
     def test_special_tokens_are_consistent(self):
         """Test that special tokens are consistently defined."""
-        # Should have 4 special tokens (2 types × 2 directions - CIT removed)
-        assert len(SPECIAL_TOKENS) == 4
+        # Should have 6 special tokens (3 types × 2 directions)
+        assert len(ALL_SPECIAL_TOKENS) == 6
 
-        # Should have START and END for BIBL and QUOTE (CIT not supported)
-        assert "[BIBL_START]" in SPECIAL_TOKENS
-        assert "[BIBL_END]" in SPECIAL_TOKENS
-        assert "[QUOTE_START]" in SPECIAL_TOKENS
-        assert "[QUOTE_END]" in SPECIAL_TOKENS
-        assert "[CIT_START]" not in SPECIAL_TOKENS
-        assert "[CIT_END]" not in SPECIAL_TOKENS
+        # Should have START and END for CIT, BIBL, and QUOTE
+        assert "[CIT_START]" in ALL_SPECIAL_TOKENS
+        assert "[CIT_END]" in ALL_SPECIAL_TOKENS
+        assert "[BIBL_START]" in ALL_SPECIAL_TOKENS
+        assert "[BIBL_END]" in ALL_SPECIAL_TOKENS
+        assert "[QUOTE_START]" in ALL_SPECIAL_TOKENS
+        assert "[QUOTE_END]" in ALL_SPECIAL_TOKENS
