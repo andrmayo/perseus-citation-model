@@ -53,7 +53,11 @@ pythonpath = ["src"]
 markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 filterwarnings = [
   "ignore:.*ill-defined.*:seqeval.metrics.v1.UndefinedMetricWarning",
-] # Keep an eye out for deadlocks, which would be causes by forking over spawning with multiprocessing
+  "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+  "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+  "ignore:.*where received a uint8 condition tensor.*:UserWarning",
+  "ignore:.*The sentencepiece tokenizer.*byte fallback option.*:UserWarning",
+]
 # Clean up temp directories more aggressively (keep only last 3 runs)
 tmp_path_retention_count = 3
 tmp_path_retention_policy = "failed" # Only keep failed test dirs for debugging

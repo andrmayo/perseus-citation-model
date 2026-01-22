@@ -460,6 +460,10 @@ class CitationTagger:
             if hasattr(self.inference_model.model, "decode"):
                 # CRF decode returns list of lists (variable length per sequence)
                 byte_mask = batch_attention_mask.byte()
+                # CRF requires first timestep to be unmasked for decoding to start.
+                # This is safe because predictions for padded positions are ignored
+                # anyway (we only use reliable_start:reliable_end predictions).
+                byte_mask[:, 0] = 1
                 predictions = cast(Callable, self.inference_model.model.decode)(
                     outputs.logits, byte_mask
                 )
