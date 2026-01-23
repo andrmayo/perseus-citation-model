@@ -1,11 +1,14 @@
-"""Unit tests for extraction model creation and configuration.
+"""Tests for extraction model creation and configuration.
 
 Note: These tests use real models (not mocks) because we need to test actual embedding resizing.
 They will be slower but more accurate.
 """
 
+from typing import cast
+
 import pytest
 import torch
+from transformers import PreTrainedModel
 
 from perscit_model.extraction.data_loader import (
     BIO_LABELS,
@@ -115,7 +118,7 @@ class TestLoadModelFromCheckpoint:
         loaded_model = load_model_from_checkpoint(saved_checkpoint)
 
         assert loaded_model is not None
-        assert loaded_model.config.num_labels == len(BIO_LABELS)
+        assert cast(PreTrainedModel, loaded_model).config.num_labels == len(BIO_LABELS)
 
     def test_loaded_model_has_same_config(self, saved_checkpoint):
         """Test that loaded model preserves configuration."""
@@ -123,6 +126,6 @@ class TestLoadModelFromCheckpoint:
         loaded_model = load_model_from_checkpoint(saved_checkpoint)
 
         # Should have same label mappings
-        assert loaded_model.config.label2id == LABEL2ID
-        assert loaded_model.config.id2label == ID2LABEL
-        assert loaded_model.config.num_labels == len(BIO_LABELS)
+        assert cast(PreTrainedModel, loaded_model).config.label2id == LABEL2ID
+        assert cast(PreTrainedModel, loaded_model).config.id2label == ID2LABEL
+        assert cast(PreTrainedModel, loaded_model).config.num_labels == len(BIO_LABELS)

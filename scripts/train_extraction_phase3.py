@@ -39,13 +39,19 @@ if __name__ == "__main__":
     logger.addHandler(console_handler)
 
     logging.info(
-        "Starting Phase 3 training (full documents with random citation retention)..."
+        "Starting Phase 3 training (full documents without LSJ, with random citation retention)..."
     )
+
     train_pipeline(
         data_dir=PHASE_3_PARTITION_DIR,
         src_path=PHASE_3_SRC_PATH,
         pretrained_model_path=PHASE_2_MODEL,
         tag_retention_prob=0.4,
+        strip_tags=["author", "title"],
+        strip_tag_retention_prob=0.5,
+        token_deletion_prob=0.05,
+        loss_margin_fraction=0.3,
+        num_epochs=2,
     )
 
 # train_pipeline should run as intendended without arguments;

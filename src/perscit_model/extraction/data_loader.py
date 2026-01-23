@@ -257,10 +257,6 @@ class ExtractionDataLoader(SharedDataLoader):
 
         # Build list of matches with their attributes
         matches = []
-        attr_idx = 0  # Index into tag_attributes (skipping CIT tokens)
-
-        # First, count CIT tokens to adjust attribute indices
-        cit_count = text.count("[CIT_START]") + text.count("[CIT_END]")
 
         # Re-scan original text to get attribute alignment
         # (before CIT stripping, attributes include CIT)
@@ -288,11 +284,7 @@ class ExtractionDataLoader(SharedDataLoader):
         # The original tag_attributes list has attributes for ALL tokens in order
         # We need to extract just BIBL/QUOTE attributes
         bibl_quote_attrs = []
-        attr_idx = 0
         # Parse original text to identify which attributes belong to BIBL/QUOTE
-        original_token_pattern = re.compile(
-            r"\[(CIT|BIBL|QUOTE)_(START|END)\]"
-        )
         # Note: We need the original text before CIT stripping to align attributes
         # Since CIT tokens are stripped, we need to count them from tag_attributes length
         # Assumption: tag_attributes has one entry per special token in order
@@ -325,10 +317,9 @@ class ExtractionDataLoader(SharedDataLoader):
         # Build result
         result_parts = []
         last_end = 0
-        attr_offset = 0  # Offset for attributes due to stripped CIT tokens
 
         for i, match in enumerate(matches):
-            result_parts.append(text[last_end:match.start()])
+            result_parts.append(text[last_end : match.start()])
 
             tag_name = match.group(1).lower()  # bibl or quote
             position = match.group(2)  # START or END
@@ -351,6 +342,86 @@ class ExtractionDataLoader(SharedDataLoader):
 
         result_parts.append(text[last_end:])
         return "".join(result_parts)
+
+    @staticmethod
+    def pad_and_mask_sequence(
+        input_ids: list[int],
+        labels: list[int],
+        max_length: int,
+        pad_token_id: int,
+        loss_margin_fraction: float = 0.3,
+    ) -> tuple[list[int], list[int], list[int]]:
+        """
+        Pad sequence to max_length with centering and mask edge labels.
+
+        Centers short sequences and masks labels outside the reliable center
+        region to match inference behavior (sliding window with center-only predictions).
+
+        The masking scheme (for max_length=512, loss_margin_fraction=0.0):
+        - Masked edge: 128 tokens (max_length // 4)
+        - Center with loss: 256 tokens (max_length // 2)
+        - Masked edge: 128 tokens (max_length // 4)
+
+        With loss_margin_fraction=0.5, extends loss into half the edge margin:
+        - Masked edge: 64 tokens
+        - Center with loss: 384 tokens
+        - Masked edge: 64 tokens
+
+        Args:
+            input_ids: Token IDs to pad
+            labels: BIO labels to pad and mask
+            max_length: Target sequence length
+            pad_token_id: Token ID to use for padding
+            loss_margin_fraction: Fraction of edge margin to include in loss (0.0-1.0).
+                0.0 = only center, 0.3 = extend into 30% of edge (default), 1.0 = full sequence
+
+        Returns:
+            Tuple of (padded_input_ids, padded_labels, attention_mask)
+        """
+        center_length = max_length // 2
+        edge_margin = max_length // 4
+
+        # Calculate how much of the edge margin to include in loss
+        loss_margin = int(edge_margin * loss_margin_fraction)
+        masked_margin = edge_margin - loss_margin
+
+        seq_len = len(input_ids)
+
+        # Truncate if necessary
+        if seq_len > max_length:
+            input_ids = input_ids[:max_length]
+            labels = labels[:max_length]
+            seq_len = max_length
+
+        # Calculate padding (center the sequence)
+        pad_len = max_length - seq_len
+        front_pad = pad_len // 2 if pad_len > 0 else 0
+        end_pad = pad_len - front_pad if pad_len > 0 else 0
+
+        # Pad input ids
+        padded_ids = [pad_token_id] * front_pad + input_ids + [pad_token_id] * end_pad
+
+        # Pad labels (padding positions get -100)
+        padded_labels = [-100] * front_pad + labels + [-100] * end_pad
+
+        # Mask left edge: from end of front padding to masked_margin
+        left_mask_end = min(masked_margin, front_pad + seq_len)
+        if left_mask_end > front_pad:
+            padded_labels[front_pad:left_mask_end] = [-100] * (left_mask_end - front_pad)
+
+        # Mask right edge: from (masked_margin + center_length + 2*loss_margin) to end
+        # This simplifies to: from (max_length - masked_margin) to end of real tokens
+        right_mask_start = max_length - masked_margin
+        right_mask_end = max_length - end_pad
+        if right_mask_start < right_mask_end:
+            padded_labels[right_mask_start:right_mask_end] = [-100] * (
+                right_mask_end - right_mask_start
+            )
+
+        # Attention mask: 1 for real tokens, 0 for padding
+        attn_mask = [0] * front_pad + [1] * seq_len + [0] * end_pad
+
+        return padded_ids, padded_labels, attn_mask
 
     def generate_bio_labels(self, input_ids: list[int]) -> list[int]:
         """
@@ -482,6 +553,7 @@ def create_extraction_dataset(
     config_path: Path | str | None = None,
     num_proc: int | None = None,
     tag_retention_prob: float | None = None,
+    loss_margin_fraction: float = 0.3,
 ) -> Dataset:
     """
     Create a HuggingFace Dataset for BIO tag extraction.
@@ -502,11 +574,12 @@ def create_extraction_dataset(
         jsonl_path: Path to JSONL file with xml_context field
         config_path: Optional path to YAML config
         num_proc: Optional number of processes for parallel tokenization
-        (1 = sequential),
-        defaults to number of threads available on system
+            (1 = sequential), defaults to number of threads available on system
         tag_retention_prob: Probability (0.0-1.0) of keeping citation tags as-is
-        instead of converting to special tokens. Default 0.0 (Phase 1 & 2 behavior).
-        For Phase 3, use 0.3-0.5 to teach model to handle existing citations.
+            instead of converting to special tokens. Default 0.0 (Phase 1 & 2 behavior).
+            For Phase 3, use 0.3-0.5 to teach model to handle existing citations.
+        loss_margin_fraction: Fraction of edge margin to include in loss (0.0-1.0).
+            0.0 = only center, 0.3 = extend into 30% of edge (default), 0.5 = half edge
 
     Returns:
         HuggingFace Dataset with tokenized inputs and BIO labels (no special tokens in input)
@@ -544,7 +617,9 @@ def create_extraction_dataset(
         # Check if data has special tokens (new format) or raw XML (old format)
         # by looking at first entry
         first_content = entries[xml_key][0] if entries[xml_key] else ""
-        has_special_tokens = "[CIT_START]" in first_content or "[BIBL_START]" in first_content
+        has_special_tokens = (
+            "[CIT_START]" in first_content or "[BIBL_START]" in first_content
+        )
 
         # Get tag_attributes if present (for Phase 3)
         tag_attrs_list = entries.get("tag_attributes", [None] * len(entries[xml_key]))
@@ -592,9 +667,6 @@ def create_extraction_dataset(
         labels = [aligned_labs for _, aligned_labs in cleaned_data]
 
         # Pad all sequences to max_length and mask edge labels
-        max_length = loader.max_length
-        center_length = max_length // 2
-        edge_margin = max_length // 4
         pad_token_id = loader.tokenizer.pad_token_id
         if pad_token_id is None:
             raise ValueError("Tokenizer has no pad_token_id configured")
@@ -604,32 +676,259 @@ def create_extraction_dataset(
         attention_mask = []
 
         for ids, labs in zip(input_ids, labels):
-            seq_len = len(ids)
-            pad_len = max_length - seq_len
-            front_pad = 0
-            end_pad = 0
-            if pad_len > 0:
-                front_pad = pad_len // 2
-                end_pad = pad_len - front_pad
-            padded_input_ids.append(
-                [pad_token_id] * front_pad + ids + [pad_token_id] * end_pad
+            p_ids, p_labs, attn = ExtractionDataLoader.pad_and_mask_sequence(
+                ids, labs, loader.max_length, cast(int, pad_token_id),
+                loss_margin_fraction=loss_margin_fraction,
             )
-            pad_labs = [-100] * front_pad + labs + [-100] * end_pad
-            pad_labs[front_pad:edge_margin] = [-100] * (edge_margin - front_pad)
-            pad_labs[edge_margin + center_length : max_length - end_pad] = [-100] * (
-                (max_length - end_pad) - (edge_margin + center_length)
-            )
-            padded_labels.append(pad_labs)
-            attention_mask.append([0] * front_pad + [1] * seq_len + [0] * end_pad)
+            padded_input_ids.append(p_ids)
+            padded_labels.append(p_labs)
+            attention_mask.append(attn)
 
+        # Note: filename is excluded because DataCollatorForTokenClassification
+        # cannot handle string columns, and remove_unused_columns may be False
+        # when using augmented training datasets
         return {
             "input_ids": padded_input_ids,
             "attention_mask": attention_mask,
             "labels": padded_labels,
-            "filename": entries["filename"],
         }
 
     msg = "Tokenizing and labelling tokens"
+
+    # Remove all original columns - only keep model-compatible tensor columns
+    columns_to_remove = dataset.column_names
+
     return dataset.map(
-        process_entries, num_proc=num_proc, batched=True, batch_size=1000, desc=msg
+        process_entries,
+        num_proc=num_proc,
+        batched=True,
+        batch_size=1000,
+        desc=msg,
+        remove_columns=columns_to_remove,
     )
+
+
+def create_augmented_extraction_dataset(
+    jsonl_path: Path | str,
+    config_path: Path | str | None = None,
+    strip_tags: list[str] | None = None,
+    tag_retention_prob: float = 0.5,
+    token_deletion_prob: float = 0.05,
+    loss_margin_fraction: float = 0.3,
+) -> Dataset:
+    """
+    Create a dataset with on-the-fly augmentation using TrainingTransform.
+
+    Unlike create_extraction_dataset() which preprocesses all data upfront,
+    this function uses set_transform() for lazy evaluation. Each access to
+    the dataset applies fresh random augmentation.
+
+    Args:
+        jsonl_path: Path to JSONL file with window_text or xml_context field
+        config_path: Optional path to YAML config
+        strip_tags: List of tag names to randomly strip (e.g., ["author", "title"])
+        tag_retention_prob: Probability of keeping each specified tag (default 0.5)
+        token_deletion_prob: Probability of deleting each token (default 0.1)
+        loss_margin_fraction: Fraction of edge margin to include in loss (0.0-1.0).
+            0.0 = only center, 0.3 = extend into 30% of edge (default), 0.5 = half edge
+
+    Returns:
+        HuggingFace Dataset with set_transform applied
+    """
+    if strip_tags is None:
+        strip_tags = []
+
+    loader = ExtractionDataLoader(config_path=config_path)
+
+    # Load raw data without preprocessing
+    def load_raw():
+        for item in loader(jsonl_path):
+            yield item
+
+    dataset = cast(Dataset, Dataset.from_generator(load_raw))
+
+    # Create transform and apply it
+    transform = TrainingTransform(
+        loader=loader,
+        strip_tags=strip_tags,
+        tag_retention_prob=tag_retention_prob,
+        token_deletion_prob=token_deletion_prob,
+        loss_margin_fraction=loss_margin_fraction,
+    )
+
+    dataset.set_transform(transform)
+
+    logger.info(
+        f"Created augmented dataset with {len(dataset)} examples "
+        f"(strip_tags={strip_tags}, tag_retention={tag_retention_prob}, "
+        f"token_deletion={token_deletion_prob}, loss_margin_fraction={loss_margin_fraction})"
+    )
+
+    return dataset
+
+
+class TrainingTransform:
+    """
+    Transform applied at dataset access time for data augmentation.
+
+    Augmentations:
+    1. Random retention of specified tags (default to 50%).
+    2. Random token deletion (defaults to 10%).
+    """
+
+    def __init__(
+        self,
+        loader: ExtractionDataLoader,
+        strip_tags: list[str],
+        tag_retention_prob: float = 0.5,
+        token_deletion_prob: float = 0.05,
+        loss_margin_fraction: float = 0.3,
+    ):
+        """
+        Initialize the training transform.
+
+        Args:
+            loader: ExtractionDataLoader instance for tokenization and label generation.
+            tag_retention_prob: Probability of keeping <author>, <title>, tags
+            token_deletion_prob: Probability of deleting each token.
+            loss_margin_fraction: Fraction of edge margin to include in loss (0.0-1.0).
+        """
+        self.loader = loader
+        self.tag_retention_prob = tag_retention_prob
+        self.token_deletion_prob = token_deletion_prob
+        self.strip_tags = strip_tags
+        self.loss_margin_fraction = loss_margin_fraction
+
+        self._citation_token_ids: set[int] | None = None
+
+    @property
+    def citation_token_ids(self) -> set[int]:
+        if self._citation_token_ids is None:
+            convert = cast(Callable, self.loader.tokenizer.convert_tokens_to_ids)
+            self._citation_token_ids = {
+                convert(spec_tok) for spec_tok in ALL_SPECIAL_TOKENS
+            }
+        return self._citation_token_ids
+
+    def process_internal_tags(self, text: str) -> str:
+        """Randomly retain or strip specified tags"""
+
+        for tag in self.strip_tags:
+            opening_pattern = re.compile(f"<{tag}[^>]*>")
+            closing_pattern = re.compile(f"</{tag}>")
+
+            matches = list(opening_pattern.finditer(text))
+            for match in reversed(matches):
+                if random.random() > self.tag_retention_prob:
+                    open_start, open_end = match.span()
+
+                    closing_match = closing_pattern.search(text, open_end)
+                    if closing_match:
+                        text = (
+                            text[: closing_match.start()] + text[closing_match.end() :]
+                        )
+
+                    text = text[:open_start] + text[open_end:]
+
+        return text
+
+    def random_token_deletion(
+        self, input_ids: list[int], labels: list[int]
+    ) -> tuple[list[int], list[int]]:
+        """Randomly delete tokens while preserving structure.structure
+
+        Preserves:
+            - Special tokens(CLS, SEP, PAD)
+            - B- labels (entity start) to maintain valid BIO sequences
+        """
+
+        new_ids = []
+        new_labels = []
+
+        special_ids = {
+            cast(int, self.loader.tokenizer.cls_token_id)
+            if isinstance(self.loader.tokenizer.cls_token_id, int)
+            else None,
+            cast(int, self.loader.tokenizer.sep_token_id)
+            if isinstance(self.loader.tokenizer.sep_token_id, int)
+            else None,
+            cast(int, self.loader.tokenizer.pad_token_id)
+            if isinstance(self.loader.tokenizer.pad_token_id, int)
+            else None,
+        }
+        special_ids.discard(None)
+
+        for token_id, label in zip(input_ids, labels):
+            if token_id in special_ids:
+                new_ids.append(token_id)
+                new_labels.append(label)
+                continue
+
+            if label in ID2LABEL and ID2LABEL[label][0] == "B":
+                new_ids.append(token_id)
+                new_labels.append(label)
+                continue
+
+            if random.random() > self.token_deletion_prob:
+                new_ids.append(token_id)
+                new_labels.append(label)
+
+        return new_ids, new_labels
+
+    def pad_and_mask(
+        self, input_ids: list[int], labels: list[int]
+    ) -> tuple[list[int], list[int], list[int]]:
+        """
+        Pad sequence to max_length and mask edge labels.
+
+        Centers short sequences and masks labels outside the reliable center
+        region + a small margin to approximate inference behavior.
+
+        Returns:
+            Tuple of (padded_input_ids, padded_labels, attention_mask)
+        """
+        pad_token_id = self.loader.tokenizer.pad_token_id
+        if not isinstance(pad_token_id, int):
+            raise ValueError("Tokenizer does not have a valid pad_token_id configured")
+
+        return ExtractionDataLoader.pad_and_mask_sequence(
+            input_ids, labels, self.loader.max_length, pad_token_id,
+            loss_margin_fraction=self.loss_margin_fraction,
+        )
+
+    def __call__(self, examples: dict[str, list]) -> dict[str, list]:
+        """Transform a batch of examples.
+
+        Note: filename is intentionally excluded from output because
+        DataCollatorForTokenClassification cannot handle string columns.
+        """
+
+        text_key = "window_text" if "window_text" in examples else "xml_context"
+
+        results: dict[str, list] = {
+            "input_ids": [],
+            "attention_mask": [],
+            "labels": [],
+        }
+
+        for text in examples[text_key]:
+            text = self.process_internal_tags(text)
+
+            text = ExtractionDataLoader.process_special_tokens(text)
+
+            encoding = self.loader.tokenize_text(text)
+            input_ids = encoding.input_ids[0].tolist()
+
+            labels = self.loader.generate_bio_labels(input_ids)
+
+            input_ids, labels = self.loader.strip_special_tokens_and_align_labels(
+                input_ids, labels
+            )
+            input_ids, labels = self.random_token_deletion(input_ids, labels)
+            input_ids, labels, attn_mask = self.pad_and_mask(input_ids, labels)
+
+            results["input_ids"].append(input_ids)
+            results["attention_mask"].append(attn_mask)
+            results["labels"].append(labels)
+
+        return results

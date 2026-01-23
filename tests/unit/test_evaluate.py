@@ -1,9 +1,11 @@
 """Unit tests for evaluation module."""
 
 import json
+from typing import cast
 from unittest.mock import Mock, patch
 
 import pytest
+from seqeval.metrics import f1_score, precision_score, recall_score
 import torch
 
 from perscit_model.extraction.evaluate import (
@@ -358,7 +360,6 @@ class TestMetricsComputation:
 
     def test_perfect_predictions_f1_is_one(self):
         """Test that perfect predictions give F1 score of 1.0."""
-        from seqeval.metrics import f1_score, precision_score, recall_score
 
         true_labels = [["O", "B-BIBL", "I-BIBL", "O", "B-QUOTE", "O"]]
         predictions = [["O", "B-BIBL", "I-BIBL", "O", "B-QUOTE", "O"]]
@@ -373,7 +374,6 @@ class TestMetricsComputation:
 
     def test_no_predictions_f1_is_zero(self):
         """Test that missing all citations gives F1 score of 0.0."""
-        from seqeval.metrics import f1_score, precision_score, recall_score
 
         true_labels = [["O", "B-BIBL", "I-BIBL", "O", "B-QUOTE", "O"]]
         predictions = [["O", "O", "O", "O", "O", "O"]]  # Missed everything
@@ -386,21 +386,19 @@ class TestMetricsComputation:
 
     def test_partial_overlap_gives_partial_score(self):
         """Test that partial predictions give intermediate scores."""
-        from seqeval.metrics import f1_score
 
         true_labels = [["O", "B-BIBL", "I-BIBL", "O", "B-QUOTE", "I-QUOTE", "O"]]
         predictions = [
             ["O", "B-BIBL", "I-BIBL", "O", "O", "O", "O"]
         ]  # Got BIBL, missed QUOTE
 
-        f1 = f1_score(true_labels, predictions)
+        f1 = cast(float, f1_score(true_labels, predictions))
 
         # Should be between 0 and 1 since we got 1 out of 2 citations
         assert 0.0 < f1 < 1.0
 
     def test_wrong_boundaries_affects_score(self):
         """Test that wrong citation boundaries affect the score."""
-        from seqeval.metrics import f1_score
 
         # True: BIBL spans tokens 1-2
         true_labels = [["O", "B-BIBL", "I-BIBL", "O", "O"]]
@@ -410,11 +408,10 @@ class TestMetricsComputation:
         f1 = f1_score(true_labels, predictions)
 
         # Score should be less than 1.0 due to boundary mismatch
-        assert f1 < 1.0
+        assert cast(float, f1) < 1.0
 
     def test_misaligned_labels_caught_by_length_check(self):
         """Test that misaligned label sequences would cause errors."""
-        from seqeval.metrics import f1_score
 
         # Different lengths should raise an error
         true_labels = [["O", "B-BIBL", "I-BIBL", "O"]]
@@ -530,10 +527,6 @@ class TestDatasetCreationForEvaluation:
 
     def test_tokenization_matches_training_via_dataset(self):
         """Test that tokenization matches training by using same dataset creation."""
-        from perscit_model.extraction.data_loader import create_extraction_dataset
-
-        # Create a simple test example
-        test_xml = "This is <bibl>a test citation</bibl> in text."
 
         # Simulate what evaluation does (via create_extraction_dataset)
         with patch("perscit_model.extraction.data_loader.ExtractionDataLoader"):
@@ -695,17 +688,3 @@ class TestEvaluateModelIntegration:
 
         # Directory should have been created
         assert output_dir.exists()
-
-    def test_output_files_created(self, tmp_path, mock_test_data):
-        """Test that output files are created in the correct location."""
-        output_dir = tmp_path / "output"
-
-        # Expected output files
-        expected_files = [
-            output_dir / "test_metrics.json",
-            output_dir / "classification_report.txt",
-            output_dir / "test_predictions.jsonl",
-        ]
-
-        # After a successful evaluate_model run, these files should exist
-        # (Requires full mocking setup to actually test)

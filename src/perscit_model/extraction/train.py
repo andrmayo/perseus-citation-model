@@ -29,6 +29,7 @@ from transformers.trainer_utils import get_last_checkpoint
 from perscit_model.extraction.data_loader import (
     ID2LABEL,
     ExtractionDataLoader,
+    create_augmented_extraction_dataset,
     create_extraction_dataset,
 )
 from perscit_model.extraction.model import create_model
@@ -150,7 +151,9 @@ def split_data(
     from collections import defaultdict
 
     examples_by_file: dict[str, list[dict]] = defaultdict(list)
-    tags_by_file: dict[str, tuple[int, int]] = {}  # filename -> (bibl_count, quote_count)
+    tags_by_file: dict[
+        str, tuple[int, int]
+    ] = {}  # filename -> (bibl_count, quote_count)
 
     with open(input_file) as f:
         for line in f:
@@ -175,8 +178,8 @@ def split_data(
     )
     if total_tags > 0:
         logger.info(
-            f"Overall tag distribution: BIBL={total_bibl} ({100*total_bibl/total_tags:.1f}%), "
-            f"QUOTE={total_quote} ({100*total_quote/total_tags:.1f}%)"
+            f"Overall tag distribution: BIBL={total_bibl} ({100 * total_bibl / total_tags:.1f}%), "
+            f"QUOTE={total_quote} ({100 * total_quote / total_tags:.1f}%)"
         )
     else:
         logger.info("No BIBL/QUOTE tags found in data, skipping label stratification")
@@ -347,9 +350,26 @@ def create_datasets(
     test_path: Path | str | None = None,
     config_path: Path | str | None = None,
     tag_retention_prob: float | None = None,
+    strip_tags: list[str] | None = None,
+    strip_tag_retention_prob: float = 0.5,
+    token_deletion_prob: float = 0.05,
+    loss_margin_fraction: float = 0.3,
 ) -> DatasetDict:
     """
     Create train/val/test datasets from JSONL files.
+
+    Args:
+        train_path: Path to training JSONL file
+        val_path: Path to validation JSONL file (optional)
+        test_path: Path to test JSONL file (optional)
+        config_path: Path to YAML config file
+        tag_retention_prob: Probability of keeping bibl/quote tags as XML (Phase 3)
+        strip_tags: List of internal tags to randomly strip (e.g., ["author", "title"])
+            If provided, uses on-the-fly augmentation for training data
+        strip_tag_retention_prob: Probability of keeping each strip_tag (default 0.5)
+        token_deletion_prob: Probability of deleting each token (default 0.1)
+        loss_margin_fraction: Fraction of edge margin to include in loss (0.0-1.0).
+            0.0 = only center, 0.3 = extend into 30% of edge (default), 0.5 = half edge
 
     Returns:
         DatasetDict with train/validation/test splits
@@ -358,13 +378,29 @@ def create_datasets(
 
     datasets = {}
 
-    logger.info(f"Loading training data from {train_path}")
-    datasets["train"] = create_extraction_dataset(
-        train_path, config_path, tag_retention_prob=tag_retention_prob
-    )
+    # Use augmented dataset if strip_tags provided or token deletion enabled
+    use_augmentation = bool(strip_tags) or token_deletion_prob > 0.0
+    if use_augmentation:
+        logger.info(f"Loading training data with augmentation from {train_path}")
+        datasets["train"] = create_augmented_extraction_dataset(
+            train_path,
+            config_path,
+            strip_tags=strip_tags or [],
+            tag_retention_prob=strip_tag_retention_prob,
+            token_deletion_prob=token_deletion_prob,
+            loss_margin_fraction=loss_margin_fraction,
+        )
+    else:
+        logger.info(f"Loading training data from {train_path}")
+        datasets["train"] = create_extraction_dataset(
+            train_path,
+            config_path,
+            tag_retention_prob=tag_retention_prob,
+            loss_margin_fraction=loss_margin_fraction,
+        )
     logger.info(f"Training examples: {len(datasets['train'])}")
 
-    # Create validation dataset
+    # Validation and test datasets use standard preprocessing (no augmentation)
     if val_path:
         if not isinstance(val_path, Path):
             val_path = Path(val_path)
@@ -493,6 +529,10 @@ def train(
     early_stopping_patience: int | None = None,
     seed: int | None = None,
     tag_retention_prob: float | None = None,
+    strip_tags: list[str] | None = None,
+    strip_tag_retention_prob: float = 0.5,
+    token_deletion_prob: float = 0.05,
+    loss_margin_fraction: float = 0.3,
     max_steps: int | None = None,
 ) -> Trainer:
     """
@@ -514,6 +554,13 @@ def train(
         weight_decay: weight decay for regularization
         early_stopping_patience: patience for early stopping in epochs
         seed: random seed for reproducible experiments (reads from config if None)
+        tag_retention_prob: probability of keeping bibl/quote tags as XML (Phase 3)
+        strip_tags: list of internal tags to randomly strip (e.g., ["author", "title"])
+            If provided, enables on-the-fly augmentation for training data
+        strip_tag_retention_prob: probability of keeping each strip_tag (default 0.5)
+        token_deletion_prob: probability of deleting each token (default 0.1)
+        loss_margin_fraction: fraction of edge margin to include in loss (0.0-1.0).
+            0.0 = only center, 0.3 = extend into 30% of edge (default), 0.5 = half edge
         max_steps: maximum number of training steps (overrides num_epochs if set)
 
     Returns:
@@ -521,6 +568,9 @@ def train(
     """
     # Load config first to get defaults
     training_config = TrainingConfig.from_yaml(config_path)
+
+    if strip_tags is None:
+        strip_tags = []
 
     # Use config seed if not provided
     if seed is None:
@@ -535,6 +585,10 @@ def train(
         test_path,
         config_path,
         tag_retention_prob,
+        strip_tags=strip_tags,
+        strip_tag_retention_prob=strip_tag_retention_prob,
+        token_deletion_prob=token_deletion_prob,
+        loss_margin_fraction=loss_margin_fraction,
     )
 
     logger.info("Creating model...")
@@ -552,6 +606,15 @@ def train(
     logger.info(f"Number of parameters: {model.num_parameters()}")
 
     config = training_config.get_training_args()
+
+    # When using augmented datasets (set_transform), the dataset's column_names
+    # reflects the original columns (xml_context, filename), not the transformed
+    # columns (input_ids, attention_mask, labels). We must disable column removal
+    # to prevent the Trainer from incorrectly filtering based on column_names.
+    use_augmentation = bool(strip_tags) or token_deletion_prob > 0.0
+    if use_augmentation:
+        config["remove_unused_columns"] = False
+
     cli_overrides = {
         "output_dir": str(output_dir) if isinstance(output_dir, Path) else output_dir,
         "learning_rate": learning_rate,
@@ -587,7 +650,9 @@ def train(
     )
 
     # Create compute_metrics with model for CRF Viterbi decoding (if CRF is enabled)
-    compute_metrics_fn = make_compute_metrics(model if training_config.use_crf else None)
+    compute_metrics_fn = make_compute_metrics(
+        model if training_config.use_crf else None
+    )
 
     trainer = Trainer(
         model=model,

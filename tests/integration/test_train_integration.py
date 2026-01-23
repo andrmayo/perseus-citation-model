@@ -26,15 +26,18 @@ class TestCreateDatasets:
     @pytest.fixture(scope="class")
     def datasets_train_only(self, sample_data_path):
         """Create datasets with only train split (shared across class)."""
-        return create_datasets(train_path=sample_data_path)
+        # Disable augmentation for stable test behavior
+        return create_datasets(train_path=sample_data_path, token_deletion_prob=0.0)
 
     @pytest.fixture(scope="class")
     def datasets_all_splits(self, sample_data_path):
         """Create datasets with all splits (shared across class)."""
+        # Disable augmentation for stable test behavior
         return create_datasets(
             train_path=sample_data_path,
             val_path=sample_data_path,
             test_path=sample_data_path,
+            token_deletion_prob=0.0,
         )
 
     def test_create_datasets_loads_train_only(self, datasets_train_only):
@@ -61,8 +64,8 @@ class TestCreateDatasets:
 
     def test_create_datasets_has_correct_columns(self, datasets_train_only):
         """Test that datasets have all required columns."""
-        # Check required columns
-        expected_columns = {"input_ids", "attention_mask", "labels", "filename"}
+        # Check required columns (filename excluded for DataCollator compatibility)
+        expected_columns = {"input_ids", "attention_mask", "labels"}
         assert expected_columns.issubset(set(datasets_train_only["train"].column_names))
 
     def test_create_datasets_tokenization_shapes(self, datasets_train_only):
@@ -75,15 +78,6 @@ class TestCreateDatasets:
 
         # attention_mask should match input_ids length
         assert len(example["attention_mask"]) == len(example["input_ids"])
-
-    def test_create_datasets_preserves_filenames(self, datasets_train_only):
-        """Test that filenames are preserved from source data."""
-        # All examples should have filenames
-        for i in range(len(datasets_train_only["train"])):
-            filename = datasets_train_only["train"][i]["filename"]
-            assert isinstance(filename, str)
-            assert len(filename) > 0
-            assert ".xml" in filename
 
 
 class TestTrain:
@@ -140,6 +134,7 @@ class TestTrain:
             config_path=config_file,
             batch_size=5,  # Larger batch for GPU
             max_steps=1,
+            token_deletion_prob=0.0,  # Disable augmentation for stable tests
         )
         return trainer, output_dir
 
@@ -220,3 +215,94 @@ class TestTrain:
 #
 # For CI/CD, the TestCreateDatasets and TestTrain classes provide sufficient
 # coverage of the training infrastructure
+
+
+class TestAugmentedDataset:
+    """Tests for training with data augmentation (TrainingTransform)."""
+
+    @pytest.fixture(scope="class")
+    def sample_data_path(self):
+        """Path to sample extraction data fixture."""
+        return Path(__file__).parent.parent / "fixtures" / "sample_extraction.jsonl"
+
+    def test_augmented_dataset_produces_valid_output(self, sample_data_path):
+        """Test that augmented dataset produces correctly shaped tensors."""
+        from perscit_model.extraction.data_loader import create_augmented_extraction_dataset
+
+        dataset = create_augmented_extraction_dataset(
+            sample_data_path,
+            strip_tags=["author", "title"],
+            tag_retention_prob=0.5,
+            token_deletion_prob=0.05,
+        )
+
+        # Access an example to trigger the transform
+        example = dataset[0]
+
+        # Check required keys
+        assert "input_ids" in example
+        assert "attention_mask" in example
+        assert "labels" in example
+
+        # Check shapes match
+        assert len(example["input_ids"]) == len(example["labels"])
+        assert len(example["input_ids"]) == len(example["attention_mask"])
+
+    def test_augmented_dataset_randomization(self, sample_data_path):
+        """Test that augmented dataset produces different results on repeated access."""
+        from perscit_model.extraction.data_loader import create_augmented_extraction_dataset
+
+        dataset = create_augmented_extraction_dataset(
+            sample_data_path,
+            strip_tags=["author", "title"],
+            tag_retention_prob=0.5,
+            token_deletion_prob=0.1,  # Higher rate to see variation
+        )
+
+        # Access same example multiple times
+        results = [dataset[0]["input_ids"] for _ in range(5)]
+
+        # With token deletion, at least some accesses should differ
+        # (probabilistic - might occasionally fail but very unlikely with 10% deletion)
+        unique_results = set(tuple(r) for r in results)
+        assert len(unique_results) >= 2, "Expected randomization to produce varied results"
+
+    def test_train_with_augmentation(self, sample_data_path, tmp_path_factory):
+        """Test that training works with augmentation enabled."""
+        import yaml
+
+        output_dir = tmp_path_factory.mktemp("augmented_train_output")
+
+        test_config = {
+            "model_name": "microsoft/deberta-v3-base",
+            "max_length": 512,
+            "learning_rate": 0.00003,
+            "per_device_train_batch_size": 2,
+            "per_device_eval_batch_size": 2,
+            "num_train_epochs": 1,
+            "fp16": True,
+            "dataloader_num_workers": 0,
+            "eval_strategy": "no",
+            "save_strategy": "no",
+            "logging_strategy": "no",
+            "report_to": "none",
+            "seed": 1234,
+        }
+
+        config_file = tmp_path_factory.mktemp("config") / "augmented_config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(test_config, f)
+
+        trainer = train(
+            train_path=sample_data_path,
+            output_dir=output_dir,
+            config_path=config_file,
+            batch_size=2,
+            max_steps=1,
+            strip_tags=["author", "title"],
+            token_deletion_prob=0.05,
+        )
+
+        # Training should complete without error
+        assert trainer is not None
+        assert trainer.state.global_step == 1

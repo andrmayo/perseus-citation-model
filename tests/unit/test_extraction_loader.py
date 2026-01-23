@@ -437,3 +437,364 @@ class TestParseXmlToBio:
         assert '[QUOTE_START]' in SPECIAL_TOKENS
         assert '[QUOTE_END]' in SPECIAL_TOKENS
         assert len(SPECIAL_TOKENS) == 4
+
+
+class TestPadAndMaskSequence:
+    """Test suite for pad_and_mask_sequence staticmethod."""
+
+    def test_pads_short_sequence_centered(self):
+        """Test that short sequences are centered with padding."""
+        from perscit_model.extraction.data_loader import ExtractionDataLoader
+
+        input_ids = [1, 2, 3, 4, 5]  # 5 tokens
+        labels = [0, 1, 2, 1, 0]  # BIO labels
+        max_length = 16
+        pad_token_id = 0
+
+        padded_ids, padded_labels, attn_mask = ExtractionDataLoader.pad_and_mask_sequence(
+            input_ids, labels, max_length, pad_token_id
+        )
+
+        assert len(padded_ids) == max_length
+        assert len(padded_labels) == max_length
+        assert len(attn_mask) == max_length
+
+        # Check centering: 5 tokens need 11 padding, split as 5 front + 6 back
+        assert padded_ids[:5] == [0] * 5  # front padding
+        assert padded_ids[5:10] == [1, 2, 3, 4, 5]  # content
+        assert padded_ids[10:] == [0] * 6  # back padding
+
+        # Check attention mask
+        assert attn_mask[:5] == [0] * 5  # front padding masked
+        assert attn_mask[5:10] == [1] * 5  # content unmasked
+        assert attn_mask[10:] == [0] * 6  # back padding masked
+
+    def test_masks_edge_labels(self):
+        """Test that edge labels are masked (-100) while center is preserved with default loss_margin_fraction=0.3."""
+        from perscit_model.extraction.data_loader import ExtractionDataLoader
+
+        # Create a full-length sequence to test edge masking
+        max_length = 512
+        input_ids = list(range(1, max_length + 1))
+        labels = [0] * max_length  # All O labels
+        pad_token_id = 0
+
+        # Use default loss_margin_fraction=0.3 explicitly
+        padded_ids, padded_labels, attn_mask = ExtractionDataLoader.pad_and_mask_sequence(
+            input_ids, labels, max_length, pad_token_id,
+            loss_margin_fraction=0.3,
+        )
+
+        # No padding needed
+        assert padded_ids == input_ids
+
+        # With loss_margin_fraction=0.3:
+        # edge_margin = 128, loss_margin = int(128 * 0.3) = 38
+        # masked_margin = 128 - 38 = 90
+        # Left edge [0:90] should be masked
+        # Center [90:422] should be unmasked (332 tokens)
+        # Right edge [422:512] should be masked
+        edge_margin = max_length // 4  # 128
+        loss_margin = int(edge_margin * 0.3)  # 38
+        masked_margin = edge_margin - loss_margin  # 90
+
+        for i in range(masked_margin):
+            assert padded_labels[i] == -100, f"Left edge label at {i} should be masked"
+
+        for i in range(masked_margin, max_length - masked_margin):
+            assert padded_labels[i] == 0, f"Center label at {i} should be preserved"
+
+        for i in range(max_length - masked_margin, max_length):
+            assert padded_labels[i] == -100, f"Right edge label at {i} should be masked"
+
+    def test_loss_margin_fraction_extends_loss_region(self):
+        """Test that loss_margin_fraction extends the loss computation region."""
+        from perscit_model.extraction.data_loader import ExtractionDataLoader
+
+        max_length = 512
+        input_ids = list(range(1, max_length + 1))
+        labels = [0] * max_length  # All O labels
+        pad_token_id = 0
+
+        # With loss_margin_fraction=0.5, masked region shrinks from 128 to 64 on each side
+        padded_ids, padded_labels, attn_mask = ExtractionDataLoader.pad_and_mask_sequence(
+            input_ids, labels, max_length, pad_token_id,
+            loss_margin_fraction=0.5,
+        )
+
+        edge_margin = max_length // 4  # 128
+        loss_margin = int(edge_margin * 0.5)  # 64
+        masked_margin = edge_margin - loss_margin  # 64
+
+        # Left edge [0:64] should be masked
+        for i in range(masked_margin):
+            assert padded_labels[i] == -100, f"Left edge at {i} should be masked"
+
+        # Extended center [64:448] should be unmasked (384 tokens)
+        for i in range(masked_margin, max_length - masked_margin):
+            assert padded_labels[i] == 0, f"Center at {i} should be preserved"
+
+        # Right edge [448:512] should be masked
+        for i in range(max_length - masked_margin, max_length):
+            assert padded_labels[i] == -100, f"Right edge at {i} should be masked"
+
+    def test_loss_margin_fraction_one_no_masking(self):
+        """Test that loss_margin_fraction=1.0 includes all tokens in loss."""
+        from perscit_model.extraction.data_loader import ExtractionDataLoader
+
+        max_length = 512
+        input_ids = list(range(1, max_length + 1))
+        labels = [0] * max_length
+        pad_token_id = 0
+
+        padded_ids, padded_labels, attn_mask = ExtractionDataLoader.pad_and_mask_sequence(
+            input_ids, labels, max_length, pad_token_id,
+            loss_margin_fraction=1.0,
+        )
+
+        # All labels should be preserved (no edge masking)
+        for i in range(max_length):
+            assert padded_labels[i] == 0, f"Label at {i} should be preserved with loss_margin_fraction=1.0"
+
+    def test_truncates_long_sequence(self):
+        """Test that sequences longer than max_length are truncated."""
+        from perscit_model.extraction.data_loader import ExtractionDataLoader
+
+        input_ids = list(range(100))  # 100 tokens
+        labels = [0] * 100
+        max_length = 64
+        pad_token_id = 0
+
+        padded_ids, padded_labels, attn_mask = ExtractionDataLoader.pad_and_mask_sequence(
+            input_ids, labels, max_length, pad_token_id
+        )
+
+        assert len(padded_ids) == max_length
+        assert len(padded_labels) == max_length
+        assert len(attn_mask) == max_length
+        assert padded_ids == list(range(64))  # First 64 tokens
+
+    def test_exact_length_sequence(self):
+        """Test sequence that exactly matches max_length."""
+        from perscit_model.extraction.data_loader import ExtractionDataLoader
+
+        max_length = 32
+        input_ids = list(range(1, max_length + 1))
+        labels = [0] * max_length
+        pad_token_id = 0
+
+        padded_ids, padded_labels, attn_mask = ExtractionDataLoader.pad_and_mask_sequence(
+            input_ids, labels, max_length, pad_token_id
+        )
+
+        assert len(padded_ids) == max_length
+        assert padded_ids == input_ids
+        assert all(m == 1 for m in attn_mask)  # All tokens attended
+
+    def test_padding_labels_are_masked(self):
+        """Test that padding positions always have -100 labels."""
+        from perscit_model.extraction.data_loader import ExtractionDataLoader
+
+        input_ids = [1, 2, 3]
+        labels = [0, 1, 0]
+        max_length = 16
+        pad_token_id = 0
+
+        padded_ids, padded_labels, attn_mask = ExtractionDataLoader.pad_and_mask_sequence(
+            input_ids, labels, max_length, pad_token_id
+        )
+
+        # Check that padding positions have -100 labels
+        for i, (pid, mask) in enumerate(zip(padded_ids, attn_mask)):
+            if mask == 0:  # padding position
+                assert padded_labels[i] == -100, f"Padding at {i} should have -100 label"
+
+
+class TestTrainingTransform:
+    """Test suite for TrainingTransform class."""
+
+    @pytest.fixture
+    def loader_with_tokenizer(self, use_cached_tokenizer):
+        """Create an ExtractionDataLoader with real tokenizer."""
+        from perscit_model.extraction.data_loader import ExtractionDataLoader
+        return ExtractionDataLoader()
+
+    @pytest.fixture
+    def transform(self, loader_with_tokenizer):
+        """Create a TrainingTransform instance."""
+        from perscit_model.extraction.data_loader import TrainingTransform
+        return TrainingTransform(
+            loader=loader_with_tokenizer,
+            strip_tags=["author", "title"],
+            tag_retention_prob=0.5,
+            token_deletion_prob=0.05,
+        )
+
+    def test_process_internal_tags_strips_tags(self, transform):
+        """Test that process_internal_tags strips specified tags."""
+        import random
+        random.seed(0)  # Force stripping (random.random() > 0.5)
+
+        text = "See <author>Plato</author> in <title>Republic</title>"
+        result = transform.process_internal_tags(text)
+
+        # With seed 0, should strip some tags
+        # Just verify the basic structure is maintained
+        assert "Plato" in result
+        assert "Republic" in result
+
+    def test_process_internal_tags_preserves_content(self, transform):
+        """Test that tag content is preserved when tags are stripped."""
+        import random
+        random.seed(42)
+
+        text = "<author>Homer</author> wrote the <title>Iliad</title>"
+        result = transform.process_internal_tags(text)
+
+        # Content should always be preserved
+        assert "Homer" in result
+        assert "wrote the" in result
+        assert "Iliad" in result
+
+    def test_process_internal_tags_full_retention(self, loader_with_tokenizer):
+        """Test that tags are kept with tag_retention_prob=1.0."""
+        from perscit_model.extraction.data_loader import TrainingTransform
+
+        transform = TrainingTransform(
+            loader=loader_with_tokenizer,
+            strip_tags=["author", "title"],
+            tag_retention_prob=1.0,  # Keep all tags
+            token_deletion_prob=0.0,
+        )
+
+        text = "<author>Plato</author> in <title>Republic</title>"
+        result = transform.process_internal_tags(text)
+
+        assert "<author>" in result
+        assert "</author>" in result
+        assert "<title>" in result
+        assert "</title>" in result
+
+    def test_process_internal_tags_zero_retention(self, loader_with_tokenizer):
+        """Test that all tags are stripped with tag_retention_prob=0.0."""
+        from perscit_model.extraction.data_loader import TrainingTransform
+
+        transform = TrainingTransform(
+            loader=loader_with_tokenizer,
+            strip_tags=["author", "title"],
+            tag_retention_prob=0.0,  # Strip all tags
+            token_deletion_prob=0.0,
+        )
+
+        text = "<author>Plato</author> in <title>Republic</title>"
+        result = transform.process_internal_tags(text)
+
+        assert "<author>" not in result
+        assert "</author>" not in result
+        assert "<title>" not in result
+        assert "</title>" not in result
+        assert "Plato" in result
+        assert "Republic" in result
+
+    def test_random_token_deletion_preserves_b_labels(self, transform):
+        """Test that B- labels are never deleted."""
+        from perscit_model.extraction.data_loader import LABEL2ID
+        import random
+        random.seed(42)
+
+        # Create input with B-BIBL label
+        input_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        labels = [
+            LABEL2ID["O"],
+            LABEL2ID["O"],
+            LABEL2ID["B-BIBL"],  # Should never be deleted
+            LABEL2ID["I-BIBL"],
+            LABEL2ID["I-BIBL"],
+            LABEL2ID["O"],
+            LABEL2ID["B-QUOTE"],  # Should never be deleted
+            LABEL2ID["I-QUOTE"],
+            LABEL2ID["O"],
+            LABEL2ID["O"],
+        ]
+
+        # Run multiple times to ensure B- labels are preserved
+        for _ in range(10):
+            new_ids, new_labels = transform.random_token_deletion(input_ids, labels)
+
+            # B-BIBL should always be present
+            assert LABEL2ID["B-BIBL"] in new_labels
+            # B-QUOTE should always be present
+            assert LABEL2ID["B-QUOTE"] in new_labels
+
+    def test_random_token_deletion_preserves_special_tokens(self, transform):
+        """Test that CLS, SEP, PAD tokens are never deleted."""
+        from perscit_model.extraction.data_loader import LABEL2ID
+
+        cls_id = transform.loader.tokenizer.cls_token_id
+        sep_id = transform.loader.tokenizer.sep_token_id
+        pad_id = transform.loader.tokenizer.pad_token_id
+
+        input_ids = [cls_id, 1, 2, 3, sep_id, pad_id, pad_id]
+        labels = [-100, LABEL2ID["O"], LABEL2ID["O"], LABEL2ID["O"], -100, -100, -100]
+
+        # Run multiple times
+        for _ in range(10):
+            new_ids, new_labels = transform.random_token_deletion(input_ids, labels)
+
+            assert cls_id in new_ids
+            assert sep_id in new_ids
+            # PAD tokens should be preserved
+            assert new_ids.count(pad_id) == 2
+
+    def test_call_returns_correct_structure(self, transform):
+        """Test that __call__ returns dict with required keys."""
+        examples = {
+            "window_text": [
+                "[BIBL_START]Hdt. 1.1[BIBL_END] discusses this"
+            ],
+            "filename": ["test.xml"],
+        }
+
+        result = transform(examples)
+
+        assert "input_ids" in result
+        assert "attention_mask" in result
+        assert "labels" in result
+        # filename is intentionally excluded - DataCollator can't handle strings
+
+        assert len(result["input_ids"]) == 1
+        assert len(result["attention_mask"]) == 1
+        assert len(result["labels"]) == 1
+
+    def test_call_produces_correct_length(self, transform):
+        """Test that output sequences have correct length."""
+        examples = {
+            "window_text": [
+                "[BIBL_START]Plato Republic[BIBL_END] is cited"
+            ],
+        }
+
+        result = transform(examples)
+
+        max_length = transform.loader.max_length
+        assert len(result["input_ids"][0]) == max_length
+        assert len(result["attention_mask"][0]) == max_length
+        assert len(result["labels"][0]) == max_length
+
+    def test_call_handles_multiple_examples(self, transform):
+        """Test that __call__ handles batches correctly."""
+        examples = {
+            "window_text": [
+                "[BIBL_START]First[BIBL_END]",
+                "[QUOTE_START]Second[QUOTE_END]",
+                "Third with no tags",
+            ],
+            "filename": ["a.xml", "b.xml", "c.xml"],
+        }
+
+        result = transform(examples)
+
+        assert len(result["input_ids"]) == 3
+        assert len(result["attention_mask"]) == 3
+        assert len(result["labels"]) == 3
+        # filename is intentionally excluded from output

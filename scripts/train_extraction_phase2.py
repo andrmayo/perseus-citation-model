@@ -38,11 +38,16 @@ if __name__ == "__main__":
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 
-    logging.info("Starting Phase 2 training (curriculum learning on full documents)...")
+    logging.info(
+        "Starting Phase 2 training (curriculum learning on full documents), including LSJ..."
+    )
     train_pipeline(
         data_dir=PHASE_2_PARTITION_DIR,
         src_path=PHASE_2_SRC_PATH,
         pretrained_model_path=PHASE_1_MODEL,
+        strip_tags=["author", "title"],
+        strip_tag_retention_prob=0.1,
+        token_deletion_prob=0.05,
     )
 
 # train_pipeline should run as intendended without arguments;

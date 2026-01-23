@@ -3,11 +3,11 @@
 import json
 import tempfile
 from pathlib import Path
+from typing import Callable, cast
 
 import pytest
 
 from perscit_model.extraction.data_loader import (
-    BIO_LABELS,
     LABEL2ID,
     ExtractionDataLoader,
     create_extraction_dataset,
@@ -18,7 +18,7 @@ class TestGenerateBioLabels:
     """Test suite for generate_bio_labels function."""
 
     @pytest.fixture
-    def loader_with_special_tokens(self, mocker, use_cached_tokenizer):
+    def loader_with_special_tokens(self, mocker):
         """Create an ExtractionDataLoader with mocked tokenizer."""
         loader = ExtractionDataLoader()
 
@@ -54,12 +54,12 @@ class TestGenerateBioLabels:
         labels = loader_with_special_tokens.generate_bio_labels(input_ids)
 
         assert labels == [
-            -100,              # CLS
-            -100,              # BIBL_START
+            -100,  # CLS
+            -100,  # BIBL_START
             LABEL2ID["B-BIBL"],  # First token
             LABEL2ID["I-BIBL"],  # Second token
-            -100,              # BIBL_END
-            -100,              # SEP
+            -100,  # BIBL_END
+            -100,  # SEP
         ]
 
     def test_simple_quote_tag(self, loader_with_special_tokens):
@@ -70,13 +70,13 @@ class TestGenerateBioLabels:
         labels = loader_with_special_tokens.generate_bio_labels(input_ids)
 
         assert labels == [
-            -100,               # CLS
-            -100,               # QUOTE_START
+            -100,  # CLS
+            -100,  # QUOTE_START
             LABEL2ID["B-QUOTE"],  # First token
             LABEL2ID["I-QUOTE"],  # Second token
             LABEL2ID["I-QUOTE"],  # Third token
-            -100,               # QUOTE_END
-            -100,               # SEP
+            -100,  # QUOTE_END
+            -100,  # SEP
         ]
 
     def test_outside_tags(self, loader_with_special_tokens):
@@ -87,10 +87,10 @@ class TestGenerateBioLabels:
         labels = loader_with_special_tokens.generate_bio_labels(input_ids)
 
         assert labels == [
-            -100,        # CLS
+            -100,  # CLS
             LABEL2ID["O"],  # word1
             LABEL2ID["O"],  # word2
-            -100,        # SEP
+            -100,  # SEP
         ]
 
     def test_mixed_tags_and_outside(self, loader_with_special_tokens):
@@ -101,13 +101,13 @@ class TestGenerateBioLabels:
         labels = loader_with_special_tokens.generate_bio_labels(input_ids)
 
         assert labels == [
-            -100,              # CLS
-            LABEL2ID["O"],        # word1 (outside)
-            -100,              # BIBL_START
-            LABEL2ID["B-BIBL"],   # word2
-            -100,              # BIBL_END
-            LABEL2ID["O"],        # word3 (outside)
-            -100,              # SEP
+            -100,  # CLS
+            LABEL2ID["O"],  # word1 (outside)
+            -100,  # BIBL_START
+            LABEL2ID["B-BIBL"],  # word2
+            -100,  # BIBL_END
+            LABEL2ID["O"],  # word3 (outside)
+            -100,  # SEP
         ]
 
     def test_multiple_tags_same_type(self, loader_with_special_tokens):
@@ -118,14 +118,14 @@ class TestGenerateBioLabels:
         labels = loader_with_special_tokens.generate_bio_labels(input_ids)
 
         assert labels == [
-            -100,              # CLS
-            -100,              # BIBL_START
-            LABEL2ID["B-BIBL"],   # word1
-            -100,              # BIBL_END
-            -100,              # BIBL_START (new tag)
-            LABEL2ID["B-BIBL"],   # word2 (new B- tag)
-            -100,              # BIBL_END
-            -100,              # SEP
+            -100,  # CLS
+            -100,  # BIBL_START
+            LABEL2ID["B-BIBL"],  # word1
+            -100,  # BIBL_END
+            -100,  # BIBL_START (new tag)
+            LABEL2ID["B-BIBL"],  # word2 (new B- tag)
+            -100,  # BIBL_END
+            -100,  # SEP
         ]
 
     def test_nested_tags(self, loader_with_special_tokens):
@@ -137,13 +137,13 @@ class TestGenerateBioLabels:
 
         # Inner tag (BIBL) takes precedence
         assert labels == [
-            -100,              # CLS
-            -100,              # QUOTE_START
-            -100,              # BIBL_START
-            LABEL2ID["B-BIBL"],   # word1 (BIBL, not QUOTE)
-            -100,              # BIBL_END
-            -100,              # QUOTE_END
-            -100,              # SEP
+            -100,  # CLS
+            -100,  # QUOTE_START
+            -100,  # BIBL_START
+            LABEL2ID["B-BIBL"],  # word1 (BIBL, not QUOTE)
+            -100,  # BIBL_END
+            -100,  # QUOTE_END
+            -100,  # SEP
         ]
 
     def test_different_tag_types_sequential(self, loader_with_special_tokens):
@@ -154,14 +154,14 @@ class TestGenerateBioLabels:
         labels = loader_with_special_tokens.generate_bio_labels(input_ids)
 
         assert labels == [
-            -100,               # CLS
-            -100,               # BIBL_START
-            LABEL2ID["B-BIBL"],    # w1
-            -100,               # BIBL_END
-            -100,               # QUOTE_START
-            LABEL2ID["B-QUOTE"],   # w2
-            -100,               # QUOTE_END
-            -100,               # SEP
+            -100,  # CLS
+            -100,  # BIBL_START
+            LABEL2ID["B-BIBL"],  # w1
+            -100,  # BIBL_END
+            -100,  # QUOTE_START
+            LABEL2ID["B-QUOTE"],  # w2
+            -100,  # QUOTE_END
+            -100,  # SEP
         ]
 
     def test_padding_tokens(self, loader_with_special_tokens):
@@ -172,13 +172,13 @@ class TestGenerateBioLabels:
         labels = loader_with_special_tokens.generate_bio_labels(input_ids)
 
         assert labels == [
-            -100,              # CLS
-            -100,              # BIBL_START
-            LABEL2ID["B-BIBL"],   # word1
-            -100,              # BIBL_END
-            -100,              # SEP
-            -100,              # PAD
-            -100,              # PAD
+            -100,  # CLS
+            -100,  # BIBL_START
+            LABEL2ID["B-BIBL"],  # word1
+            -100,  # BIBL_END
+            -100,  # SEP
+            -100,  # PAD
+            -100,  # PAD
         ]
 
     def test_empty_tag(self, loader_with_special_tokens):
@@ -208,7 +208,7 @@ class TestStripSpecialTokens:
     """Test suite for strip_special_tokens_and_align_labels function."""
 
     @pytest.fixture
-    def loader_with_special_tokens(self, mocker, use_cached_tokenizer):
+    def loader_with_special_tokens(self, mocker):
         """Create an ExtractionDataLoader with mocked tokenizer."""
         loader = ExtractionDataLoader()
 
@@ -242,8 +242,10 @@ class TestStripSpecialTokens:
         input_ids = [0, 100, 10, 11, 101, 2]
         labels = [-100, -100, LABEL2ID["B-BIBL"], LABEL2ID["I-BIBL"], -100, -100]
 
-        clean_ids, aligned_labels = loader_with_special_tokens.strip_special_tokens_and_align_labels(
-            input_ids, labels
+        clean_ids, aligned_labels = (
+            loader_with_special_tokens.strip_special_tokens_and_align_labels(
+                input_ids, labels
+            )
         )
 
         # Should remove [BIBL_START] (100) and [BIBL_END] (101)
@@ -256,8 +258,10 @@ class TestStripSpecialTokens:
         input_ids = [0, 102, 10, 11, 103, 2]
         labels = [-100, -100, LABEL2ID["B-QUOTE"], LABEL2ID["I-QUOTE"], -100, -100]
 
-        clean_ids, aligned_labels = loader_with_special_tokens.strip_special_tokens_and_align_labels(
-            input_ids, labels
+        clean_ids, aligned_labels = (
+            loader_with_special_tokens.strip_special_tokens_and_align_labels(
+                input_ids, labels
+            )
         )
 
         # Should remove [QUOTE_START] (102) and [QUOTE_END] (103)
@@ -269,19 +273,21 @@ class TestStripSpecialTokens:
         # [CLS] [BIBL_START] w1 [BIBL_END] [QUOTE_START] w2 [QUOTE_END] w3 [SEP]
         input_ids = [0, 100, 10, 101, 102, 11, 103, 12, 2]
         labels = [
-            -100,                  # CLS
-            -100,                  # BIBL_START
-            LABEL2ID["B-BIBL"],    # w1
-            -100,                  # BIBL_END
-            -100,                  # QUOTE_START
-            LABEL2ID["B-QUOTE"],   # w2
-            -100,                  # QUOTE_END
-            LABEL2ID["O"],         # w3
-            -100,                  # SEP
+            -100,  # CLS
+            -100,  # BIBL_START
+            LABEL2ID["B-BIBL"],  # w1
+            -100,  # BIBL_END
+            -100,  # QUOTE_START
+            LABEL2ID["B-QUOTE"],  # w2
+            -100,  # QUOTE_END
+            LABEL2ID["O"],  # w3
+            -100,  # SEP
         ]
 
-        clean_ids, aligned_labels = loader_with_special_tokens.strip_special_tokens_and_align_labels(
-            input_ids, labels
+        clean_ids, aligned_labels = (
+            loader_with_special_tokens.strip_special_tokens_and_align_labels(
+                input_ids, labels
+            )
         )
 
         # Should only have CLS, w1, w2, w3, SEP (all 4 special tokens removed)
@@ -299,17 +305,19 @@ class TestStripSpecialTokens:
         # [CLS] word1 [BIBL_START] word2 [BIBL_END] word3 [SEP]
         input_ids = [0, 10, 100, 11, 101, 12, 2]
         labels = [
-            -100,               # CLS
-            LABEL2ID["O"],      # word1 (outside)
-            -100,               # BIBL_START
-            LABEL2ID["B-BIBL"], # word2
-            -100,               # BIBL_END
-            LABEL2ID["O"],      # word3 (outside)
-            -100,               # SEP
+            -100,  # CLS
+            LABEL2ID["O"],  # word1 (outside)
+            -100,  # BIBL_START
+            LABEL2ID["B-BIBL"],  # word2
+            -100,  # BIBL_END
+            LABEL2ID["O"],  # word3 (outside)
+            -100,  # SEP
         ]
 
-        clean_ids, aligned_labels = loader_with_special_tokens.strip_special_tokens_and_align_labels(
-            input_ids, labels
+        clean_ids, aligned_labels = (
+            loader_with_special_tokens.strip_special_tokens_and_align_labels(
+                input_ids, labels
+            )
         )
 
         # Should preserve CLS, word1, word2, word3, SEP
@@ -327,17 +335,19 @@ class TestStripSpecialTokens:
         # [CLS] [BIBL_START] w1 w2 w3 [BIBL_END] [SEP]
         input_ids = [0, 100, 10, 11, 12, 101, 2]
         labels = [
-            -100,               # CLS
-            -100,               # BIBL_START
-            LABEL2ID["B-BIBL"], # w1
-            LABEL2ID["I-BIBL"], # w2
-            LABEL2ID["I-BIBL"], # w3
-            -100,               # BIBL_END
-            -100,               # SEP
+            -100,  # CLS
+            -100,  # BIBL_START
+            LABEL2ID["B-BIBL"],  # w1
+            LABEL2ID["I-BIBL"],  # w2
+            LABEL2ID["I-BIBL"],  # w3
+            -100,  # BIBL_END
+            -100,  # SEP
         ]
 
-        clean_ids, aligned_labels = loader_with_special_tokens.strip_special_tokens_and_align_labels(
-            input_ids, labels
+        clean_ids, aligned_labels = (
+            loader_with_special_tokens.strip_special_tokens_and_align_labels(
+                input_ids, labels
+            )
         )
 
         # Length should match
@@ -357,8 +367,10 @@ class TestStripSpecialTokens:
         input_ids = []
         labels = []
 
-        clean_ids, aligned_labels = loader_with_special_tokens.strip_special_tokens_and_align_labels(
-            input_ids, labels
+        clean_ids, aligned_labels = (
+            loader_with_special_tokens.strip_special_tokens_and_align_labels(
+                input_ids, labels
+            )
         )
 
         assert clean_ids == []
@@ -370,8 +382,10 @@ class TestStripSpecialTokens:
         input_ids = [100, 101]
         labels = [-100, -100]
 
-        clean_ids, aligned_labels = loader_with_special_tokens.strip_special_tokens_and_align_labels(
-            input_ids, labels
+        clean_ids, aligned_labels = (
+            loader_with_special_tokens.strip_special_tokens_and_align_labels(
+                input_ids, labels
+            )
         )
 
         # Should be empty after removing special tokens
@@ -386,7 +400,7 @@ class TestCreateExtractionDataset:
     @pytest.fixture
     def temp_jsonl_file(self):
         """Create a temporary JSONL file with extraction data."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             test_data = [
                 {
                     "xml_context": "<bibl>Hdt. 8.82</bibl>",
@@ -402,7 +416,7 @@ class TestCreateExtractionDataset:
                 },
             ]
             for item in test_data:
-                f.write(json.dumps(item) + '\n')
+                f.write(json.dumps(item) + "\n")
             temp_path = f.name
 
         yield temp_path
@@ -410,7 +424,7 @@ class TestCreateExtractionDataset:
         # Cleanup
         Path(temp_path).unlink()
 
-    def test_returns_dataset(self, temp_jsonl_file, use_cached_tokenizer):
+    def test_returns_dataset(self, temp_jsonl_file):
         """Test that create_extraction_dataset returns a Dataset."""
         from datasets import Dataset
 
@@ -418,52 +432,36 @@ class TestCreateExtractionDataset:
 
         assert isinstance(dataset, Dataset)
 
-    def test_dataset_has_correct_columns(self, temp_jsonl_file, use_cached_tokenizer):
+    def test_dataset_has_correct_columns(self, temp_jsonl_file):
         """Test that dataset has expected columns."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
         assert "input_ids" in dataset.column_names
         assert "attention_mask" in dataset.column_names
         assert "labels" in dataset.column_names
-        assert "filename" in dataset.column_names
+        # filename is excluded because DataCollator can't handle strings
 
-    def test_dataset_has_correct_length(self, temp_jsonl_file, use_cached_tokenizer):
+    def test_dataset_has_correct_length(self, temp_jsonl_file):
         """Test that dataset has same number of examples as input."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
         assert len(dataset) == 3
 
-    def test_labels_same_length_as_input_ids(self, temp_jsonl_file, use_cached_tokenizer):
+    def test_labels_same_length_as_input_ids(self, temp_jsonl_file):
         """Test that labels have same length as input_ids for each example."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
         for i in range(len(dataset)):
             assert len(dataset[i]["labels"]) == len(dataset[i]["input_ids"])
 
-    def test_attention_mask_same_length_as_input_ids(self, temp_jsonl_file, use_cached_tokenizer):
+    def test_attention_mask_same_length_as_input_ids(self, temp_jsonl_file):
         """Test that attention_mask has same length as input_ids."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
         for i in range(len(dataset)):
             assert len(dataset[i]["attention_mask"]) == len(dataset[i]["input_ids"])
 
-    def test_preserves_filenames(self, temp_jsonl_file, use_cached_tokenizer):
-        """Test that filenames are preserved in dataset."""
-        dataset = create_extraction_dataset(temp_jsonl_file)
-
-        assert dataset[0]["filename"] == "file1.xml"
-        assert dataset[1]["filename"] == "file2.xml"
-        assert dataset[2]["filename"] == "file3.xml"
-
-    def test_preserves_order(self, temp_jsonl_file, use_cached_tokenizer):
-        """Test that examples maintain input order."""
-        dataset = create_extraction_dataset(temp_jsonl_file)
-
-        # Filenames should be in same order as input
-        filenames = [dataset[i]["filename"] for i in range(len(dataset))]
-        assert filenames == ["file1.xml", "file2.xml", "file3.xml"]
-
-    def test_labels_are_integers(self, temp_jsonl_file, use_cached_tokenizer):
+    def test_labels_are_integers(self, temp_jsonl_file):
         """Test that labels are integer IDs."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
@@ -471,7 +469,7 @@ class TestCreateExtractionDataset:
             for label in dataset[i]["labels"]:
                 assert isinstance(label, int)
 
-    def test_labels_in_valid_range(self, temp_jsonl_file, use_cached_tokenizer):
+    def test_labels_in_valid_range(self, temp_jsonl_file):
         """Test that label IDs are in valid range."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
@@ -481,7 +479,7 @@ class TestCreateExtractionDataset:
             for label in dataset[i]["labels"]:
                 assert label in valid_label_ids
 
-    def test_input_ids_are_integers(self, temp_jsonl_file, use_cached_tokenizer):
+    def test_input_ids_are_integers(self, temp_jsonl_file):
         """Test that input_ids are integers."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
@@ -489,11 +487,11 @@ class TestCreateExtractionDataset:
             for token_id in dataset[i]["input_ids"]:
                 assert isinstance(token_id, int)
 
-    def test_custom_config_path(self, temp_jsonl_file, use_cached_tokenizer):
+    def test_custom_config_path(self, temp_jsonl_file):
         """Test dataset creation with custom config path."""
         from datasets import Dataset
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("""
 model_name: bert-base-uncased
 max_length: 256
@@ -501,7 +499,9 @@ max_length: 256
             config_path = f.name
 
         try:
-            dataset = create_extraction_dataset(temp_jsonl_file, config_path=config_path)
+            dataset = create_extraction_dataset(
+                temp_jsonl_file, config_path=config_path
+            )
 
             # Should succeed and create dataset
             assert isinstance(dataset, Dataset)
@@ -509,7 +509,7 @@ max_length: 256
         finally:
             Path(config_path).unlink()
 
-    def test_dataset_strips_special_tokens_from_input(self, temp_jsonl_file, use_cached_tokenizer):
+    def test_dataset_strips_special_tokens_from_input(self, temp_jsonl_file):
         """Test that special tokens are NOT in the final dataset input_ids."""
         dataset = create_extraction_dataset(temp_jsonl_file)
 
@@ -518,15 +518,16 @@ max_length: 256
 
         # These are the IDs we should NOT see in input_ids (CIT tokens removed - not supported)
         special_token_ids = {
-            loader.tokenizer.convert_tokens_to_ids("[BIBL_START]"),
-            loader.tokenizer.convert_tokens_to_ids("[BIBL_END]"),
-            loader.tokenizer.convert_tokens_to_ids("[QUOTE_START]"),
-            loader.tokenizer.convert_tokens_to_ids("[QUOTE_END]"),
+            cast(Callable, loader.tokenizer.convert_tokens_to_ids)("[BIBL_START]"),
+            cast(Callable, loader.tokenizer.convert_tokens_to_ids)("[BIBL_END]"),
+            cast(Callable, loader.tokenizer.convert_tokens_to_ids)("[QUOTE_START]"),
+            cast(Callable, loader.tokenizer.convert_tokens_to_ids)("[QUOTE_END]"),
         }
 
         # Check that none of the special tokens appear in input_ids
         for i in range(len(dataset)):
             input_ids = dataset[i]["input_ids"]
             for token_id in input_ids:
-                assert token_id not in special_token_ids, \
+                assert token_id not in special_token_ids, (
                     f"Found special token {token_id} in input_ids at position {i}"
+                )

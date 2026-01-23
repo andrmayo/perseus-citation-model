@@ -174,9 +174,6 @@ class CitationTagger:
                 in_entity = False
                 last_label = "O"
                 last_end = 0
-                # Track window boundary issues to suppress redundant warnings
-                # (with CRF, invalid BIO sequences only occur at window boundaries)
-                boundary_issue_active = False
 
                 for label, (start, end) in zip(labels, offset_mapping):
                     # This handles special tokens
@@ -189,11 +186,9 @@ class CitationTagger:
 
                     # Deal with invalid prediction (I- without preceding B-)
                     if not in_entity and label[0] == "I":
-                        if not boundary_issue_active:
-                            logger.warning(
-                                f"Invalid: {label} without 'B-' label and with preceding context {''.join(new_xml[-50:])}"
-                            )
-                            boundary_issue_active = True
+                        logger.warning(
+                            f"Invalid: {label} without 'B-' label and with preceding context:\n\n {''.join(new_xml[-50:])}"
+                        )
                         label = "O"
 
                     if label == "O":
@@ -207,7 +202,8 @@ class CitationTagger:
                         new_xml.append(xml_content[start:end])
                         last_label = "O"
                         last_end = end
-                        boundary_issue_active = False
+                        # Don't reset boundary_issue_active here - only reset on valid B- labels
+                        # This prevents flooding with warnings for consecutive orphan I- tokens
                         continue
 
                     label_type, label_name = label.split("-")
@@ -221,14 +217,12 @@ class CitationTagger:
                             [f"[{label_name}_START]", xml_content[start:end]]
                         )
                         in_entity = True
-                        boundary_issue_active = False
                     # label_type == "I"
                     else:
                         if label_name != last_label:
                             logger.warning(
                                 f"Invalid: I-{last_label} followed by I-{label_name} with preceding context {''.join(new_xml[-50:])}"
                             )
-                            boundary_issue_active = True
                             # If we were in an entity, close it first
                             if last_label != "O":
                                 new_xml.append(f"[{last_label}_END]")
@@ -491,14 +485,21 @@ class CitationTagger:
             reliable_start_idx = window["reliable_start"] - window["start"]
             reliable_end_idx = window["reliable_end"] - window["start"]
 
+            # Clamp indices to actual prediction length (for short sequences
+            # where reliable region may extend beyond window bounds)
+            reliable_end_idx = min(reliable_end_idx, len(window_preds))
+            actual_reliable_end = window["start"] + reliable_end_idx
+
             # Copy reliable predictions
-            padded_predictions[window["reliable_start"] : window["reliable_end"]] = [
+            padded_predictions[window["reliable_start"] : actual_reliable_end] = [
                 window_preds[i].item()
                 for i in range(reliable_start_idx, reliable_end_idx)
             ]
 
         # Extract only the original tokens (skip front and back padding)
-        final_predictions = padded_predictions[edge_margin : edge_margin + original_n_tokens]
+        final_predictions = padded_predictions[
+            edge_margin : edge_margin + original_n_tokens
+        ]
 
         def get_pred_label(pred_val: int | None) -> str:
             if pred_val is None:

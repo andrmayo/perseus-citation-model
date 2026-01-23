@@ -101,11 +101,10 @@ class TestExtractionPipeline:
         # Should have 5 examples
         assert len(dataset) == 5
 
-        # Should have all required columns
+        # Should have all required columns (filename excluded for DataCollator compatibility)
         assert "input_ids" in dataset.column_names
         assert "attention_mask" in dataset.column_names
         assert "labels" in dataset.column_names
-        assert "filename" in dataset.column_names
 
     def test_dataset_labels_are_valid(self, sample_data_path, mock_tokenizer):
         """Test that generated labels are in valid range."""
@@ -193,24 +192,13 @@ class TestExtractionPipeline:
         # First example in dataset
         first_dataset_item = dataset[0]
 
-        # Should have all fields
+        # Should have model-compatible fields (filename excluded for DataCollator)
         assert "input_ids" in first_dataset_item
         assert "labels" in first_dataset_item
-        assert "filename" in first_dataset_item
+        assert "attention_mask" in first_dataset_item
 
         # Labels should be same length as input
         assert len(first_dataset_item["labels"]) == len(first_dataset_item["input_ids"])
-
-    def test_dataset_preserves_filenames_from_real_data(self, sample_data_path, mock_tokenizer):
-        """Test that dataset preserves actual filenames from JSONL."""
-        dataset = create_extraction_dataset(sample_data_path)
-
-        # All examples should have filenames from the fixture
-        for i in range(len(dataset)):
-            filename = dataset[i]["filename"]
-            assert filename.endswith(".xml")
-            # Should be a valid path-like string
-            assert len(filename) > 0
 
     def test_pipeline_memory_efficiency(self, sample_data_path, mock_tokenizer):
         """Test that loader uses generators (memory efficient)."""

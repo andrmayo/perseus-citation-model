@@ -181,7 +181,7 @@ class TestProcessBatch:
 
         # Should succeed with truncated input
         assert len(results) == 1
-        encoding, labels = results[0]
+        _, labels = results[0]
         assert len(labels) == max_length
 
     def test_process_batch_moves_inputs_to_device(self, mock_inference_model):
@@ -211,9 +211,12 @@ class TestProcessBatch:
             calls_to_model.append(kwargs)
             return mock_output
 
-        # Add config attribute to the function
-        mock_model_call.config = original_config
-        mock_inference_model.model = mock_model_call
+        # Create a mock that tracks calls and preserves config
+        # Use spec=[] to prevent hasattr returning True for arbitrary attributes
+        # (otherwise hasattr(model, "decode") is True and CRF branch is taken)
+        mock_model = Mock(side_effect=mock_model_call, spec=[])
+        mock_model.config = original_config
+        mock_inference_model.model = mock_model
 
         mock_inference_model.process_batch(texts)
 
@@ -244,7 +247,7 @@ class TestProcessText:
         mock_output.logits = mock_logits
         mock_inference_model.model.return_value = mock_output
 
-        encoding, labels = mock_inference_model.process_text(text)
+        _, labels = mock_inference_model.process_text(text)
 
         assert isinstance(labels, list)
         assert len(labels) == 3
@@ -297,9 +300,7 @@ class TestInsertTags:
         )
         labels = ["O", "O", "O", "B-BIBL", "I-BIBL", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         assert "<bibl>a citation</bibl>" in result
 
@@ -312,9 +313,7 @@ class TestInsertTags:
         )
         labels = ["O", "O", "O", "B-QUOTE", "I-QUOTE", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         assert "<quote>hello there</quote>" in result
 
@@ -327,9 +326,7 @@ class TestInsertTags:
         )
         labels = ["O", "B-BIBL", "I-BIBL", "O", "B-QUOTE", "I-QUOTE", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         assert "<bibl>First citation</bibl>" in result
         assert "<quote>second citation</quote>" in result
@@ -341,9 +338,7 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 10), (11, 15), (15, 16)])
         labels = ["O", "O", "O", "O", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         assert result == xml
 
@@ -355,9 +350,7 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 9), (9, 10), (0, 0), (0, 0)])
         labels = ["O", "B-BIBL", "I-BIBL", "O", "O", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         # Should only tag actual text, not special tokens
         assert "<bibl>Test text</bibl>" in result
@@ -369,9 +362,7 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 3), (4, 8), (9, 10), (10, 27)])
         labels = ["O", "O", "B-BIBL", "I-BIBL", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         # Should insert tags based on predicted labels
         assert "<bibl>" in result
@@ -386,9 +377,7 @@ class TestInsertTags:
         )
         labels = ["O", "O", "O", "O", "B-QUOTE", "I-QUOTE", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         # Should insert quote tag based on predicted labels
         assert "<quote>second citation</quote>" in result
@@ -400,9 +389,7 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (4, 13), (14, 18), (18, 19)])
         labels = ["O", "O", "B-BIBL", "I-BIBL", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         # Should insert tags based on predicted labels
         assert "<bibl>" in result
@@ -419,9 +406,7 @@ class TestInsertTags:
         )
         labels = ["O", "O", "O", "B-QUOTE", "I-QUOTE", "I-QUOTE", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         # Should insert quote tag based on predicted labels
         assert "<quote>quoted text here</quote>" in result
@@ -448,9 +433,7 @@ class TestInsertTags:
         )
         labels = ["O", "O", "O", "O", "B-BIBL", "I-BIBL", "O", "O", "O", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         # Should insert bibl tag based on predicted labels
         assert "<bibl>middle text</bibl>" in result
@@ -462,9 +445,7 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 13), (13, 14)])
         labels = ["O", "B-BIBL", "I-BIBL", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         assert "<bibl>Test citation</bibl>" in result
 
@@ -475,9 +456,7 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (5, 13), (13, 14)])
         labels = ["O", "B-BIBL", "I-BIBL", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         assert "<bibl>Test citation</bibl>" in result
 
@@ -490,13 +469,10 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 3), (4, 8), (9, 10), (10, 27)])
         labels = ["O", "O", "O", "O", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         # No tags should be inserted since all labels are O
         assert result == xml
-
 
     def test_insert_tags_avoids_splitting_opening_tag_markup(
         self, mock_inference_model
@@ -512,9 +488,7 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (8, 23), (32, 36), (36, 37)])
         labels = ["O", "O", "B-BIBL", "O", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         # Should NOT split the opening tag markup
         assert "<glo<bibl>" not in result
@@ -536,9 +510,7 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (12, 27), (32, 36), (36, 37)])
         labels = ["O", "B-BIBL", "I-BIBL", "O", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         # Should NOT split the closing tag markup
         assert "</glo</bibl>" not in result
@@ -561,15 +533,13 @@ class TestInsertTags:
         offset_mapping = torch.tensor([(0, 0), (0, 4), (10, 22), (23, 29), (0, 0)])
         labels = ["O", "O", "B-QUOTE", "I-QUOTE", "O"]
 
-        result = mock_inference_model._insert_tags(
-            xml, tokens, offset_mapping, labels
-        )
+        result = mock_inference_model._insert_tags(xml, tokens, offset_mapping, labels)
 
         # Should NOT split the self-closing tag markup
         assert "n=<quote>" not in result
         assert "n='<quote>" not in result
         # Should produce valid XML
-        assert "<pb n='5'/>" in result or "<pb n=\"5\"/>" in result
+        assert "<pb n='5'/>" in result or '<pb n="5"/>' in result
 
 
 class TestLoadModel:

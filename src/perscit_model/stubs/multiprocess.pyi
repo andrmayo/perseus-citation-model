@@ -1,0 +1,3 @@
+"""Type stubs for multiprocess library (fork of multiprocessing)."""
+
+def set_start_method(method: str, force: bool = False) -> None: ...

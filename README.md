@@ -34,20 +34,6 @@ uv sync
 pip install -e ".[dev]"
 ```
 
-**Dependencies:**
-
-- `transformers` - HuggingFace transformers (DeBERTa models)
-- `torch` - PyTorch for model training
-- `datasets` - HuggingFace datasets library
-- `bs4` + `lxml` - XML parsing with BeautifulSoup
-- `sentencepiece` + `protobuf` - Tokenizer support
-- `accelerate` - Distributed training and mixed precision
-- `seqeval` - BIO tagging evaluation metrics
-- `tiktoken` - OpenAI tokenizer utilities
-- `typer` - CLI
-- `pytest` + `pytest-mock` - Testing (dev dependency)
-- `jupyter` + `ipykernel` - Notebook support (dev dependency)
-
 ## Overview
 
 This project provides two complementary ML tasks for working with citations in
@@ -63,7 +49,7 @@ different model architectures appropriate to each problem.
 
 ## Task Definitions
 
-### Task 1: Tag Extraction
+### Tag Extraction
 
 **Input:** Plain text extracted from TEI XML documents **Output:** Token-level
 tags identifying citation boundaries
@@ -83,7 +69,7 @@ logically once `<bibl>` and `<quote>` elements have been identified
 - Mixed languages (Greek, Latin, English)
 - Context-dependent identification
 
-### Task 2: URN Resolution
+### URN Resolution
 
 **Input:** Bibliographic reference text (e.g., "Hdt. 8.82") **Output:** CTS URN
 (e.g., "urn:cts:greekLit:tlg0016.tlg001.perseus-grc2:8.82")
@@ -146,11 +132,7 @@ Training data is in JSONL format with two files:
 
 ---
 
-# Task 1: Tag Extraction
-
-## Approach 1: Transformer-based Token Classification
-
-### Overview
+## Task 1: Tag Extraction
 
 Fine-tune a pre-trained transformer model (DeBERTa) for sequence labeling using
 BIO tagging.
@@ -227,94 +209,17 @@ alternative if:
 
 ---
 
-## Alternative Approach: Transformer + CRF (Hybrid)
+### CRF Decoding Layer
 
-### Overview
+To help the model learn sequences rather than simply individual token labels,
+I've added a CRF decoding layer. A (in this case secondary) benefit is to
+enforce valid label predictions (which really just means that I- labels follow
+B- label).
 
-Combine transformer contextual embeddings with a Conditional Random Field (CRF)
-layer to ensure valid tag sequences.
-
-### Architecture
+### Architecture with CRF
 
 ```
 Input Text → Tokenizer → Transformer Encoder → Linear Layer → CRF Layer → BIO Tags
-```
-
-### Why Add CRF?
-
-The CRF layer learns transition probabilities between tags, ensuring:
-
-- Valid sequences (e.g., `I-QUOTE` must follow `B-QUOTE` or `I-QUOTE`)
-- No impossible transitions (e.g., `B-CIT` → `I-QUOTE` directly)
-- Global optimization across the entire sequence
-- Structured prediction with dependencies
-
-### Pros
-
-- Guaranteed valid tag sequences
-- Models dependencies between adjacent tags
-- Often 1-3% better F1 score than plain transformers
-- Theoretically sound structured prediction
-- Better handling of rare tag transitions
-
-### Cons
-
-- More complex implementation
-- Slightly slower training/inference
-- Additional hyperparameters to tune
-- Requires more memory (stores transition matrix)
-
----
-
-## Data Preparation Pipeline
-
-**Actual implementation:** See `src/perscit_model/extraction/data_loader.py`
-
-### Pipeline Overview
-
-```
-JSONL file → parse_xml_to_bio() → tokenize → generate_bio_labels() → strip_special_tokens_and_align_labels() → Dataset
-```
-
-### Step 1: XML → Special Tokens
-
-```python
-from perscit_model.extraction.data_loader import ExtractionDataLoader
-
-xml = '<bibl n="Hdt. 8.82">Hdt. 8.82</bibl> some context'
-processed = ExtractionDataLoader.parse_xml_to_bio(xml)
-# Output: " [BIBL_START]  Hdt. 8.82  [BIBL_END]  some context"
-```
-
-**What it does:**
-
-1. Parse XML with BeautifulSoup (repairs malformed XML)
-2. Remove attributes from `<bibl>`, `<quote>`, `<cit>` tags
-3. Replace tags with special tokens surrounded by spaces
-4. Preserve other tags (`<title>`, `<author>`, etc.)
-
-### Step 2: Tokenize with DeBERTa
-
-```python
-loader = ExtractionDataLoader()  # Adds special tokens to vocabulary
-tokens = loader.tokenizer(processed)
-# DeBERTa tokenizes, special tokens won't be split
-```
-
-### Step 3: Generate BIO Labels
-
-```python
-labels = ExtractionDataLoader.generate_bio_labels(tokens.input_ids[0], loader.tokenizer)
-# State machine: [BIBL_START] triggers B-BIBL, subsequent tokens get I-BIBL
-```
-
-### Step 4: Strip Special Tokens from Input
-
-```python
-clean_input_ids, aligned_labels = loader.strip_special_tokens_and_align_labels(
-    input_ids, labels
-)
-# Special tokens removed from input, labels remain aligned
 ```
 
 ### Dataset Splitting
