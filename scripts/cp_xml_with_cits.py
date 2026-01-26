@@ -13,22 +13,34 @@ This script does two things:
 import bisect
 import json
 import math
+import random
 import re
 import sys
 from io import BytesIO
 from pathlib import Path
+from typing import Callable, cast
 from xml import sax
 
 import yaml
 from lxml import etree
 from tqdm import tqdm
+from torch import Tensor
 
 from perscit_model.shared.data_loader import SharedDataLoader
+from perscit_model.shared.training_utils import TrainingConfig
 from perscit_model.shared.xml_utils import CitXMLHandler
+
+config = TrainingConfig.from_yaml(
+    Path(__file__).parent.parent / "configs/extraction/baseline.yaml"
+)
+
+random.seed(config.seed)
 
 INCLUSION_THRESHOLD = 100
 DEFAULT_OUTPUT = Path(__file__).parent.parent / "cit_data/xml_files"
 WINDOW_SIZE = 512
+
+cit_tag_retention_prob = 0.1
 
 # Special tokens for citation tags (must match what's added to tokenizer)
 SPECIAL_TOKENS = [
@@ -46,23 +58,31 @@ TAG_PATTERN = re.compile(r"<(/?)(cit|bibl|quote)\b([^>]*)>")
 
 
 def replace_tags_with_special_tokens(
-    xml_text: str,
+    xml_text: str, retention_prob: float = 0.0
 ) -> tuple[str, list[str]]:
     """
     Replace citation tags with special tokens and extract attributes.
 
     Args:
         xml_text: XML text with citation tags
+        retention_prob: Probability (0.0-1.0) of keeping bibl/quote tags as-is
+            instead of converting to special tokens. CIT tags are always converted.
+            When a tag is kept, both opening and closing tags are preserved.
+            Handles nested tags correctly using a stack.
 
     Returns:
         Tuple of (processed_text, tag_attributes) where:
         - processed_text has tags replaced with special tokens
-        - tag_attributes is a list of attribute strings in order of appearance
-          (empty string for tags without attributes or closing tags)
+        - tag_attributes is a list of attribute strings in order of appearance,
+            not including kept tags
+            (empty string for tags without attributes or closing tags)
     """
     tag_attributes: list[str] = []
     result_parts: list[str] = []
     last_end = 0
+
+    kept_open_tags: list[str] = []
+    keep = False
 
     for match in TAG_PATTERN.finditer(xml_text):
         # Add text before this tag
@@ -71,6 +91,21 @@ def replace_tags_with_special_tokens(
         is_closing = match.group(1) == "/"
         tag_name = match.group(2).upper()
         attrs = match.group(3).strip()
+        last_end = match.end()
+
+        # check if closing tag of kept open tag
+        if is_closing and kept_open_tags and match.group(2) == kept_open_tags[-1]:
+            keep = True
+            kept_open_tags.pop()
+        elif match.group(2) != "cit" and not is_closing:
+            keep = random.random() < retention_prob
+            if keep:
+                kept_open_tags.append(match.group(2))
+
+        if keep:
+            keep = False
+            result_parts.append(match.group(0))
+            continue
 
         # Determine special token
         if is_closing:
@@ -83,7 +118,6 @@ def replace_tags_with_special_tokens(
             tag_attributes.append(attrs)
 
         result_parts.append(special_token)
-        last_end = match.end()
 
     # Add remaining text after last tag
     result_parts.append(xml_text[last_end:])
@@ -119,7 +153,7 @@ def count_special_tokens_in_range(
 ) -> int:
     """Count special tokens that fall within a character range."""
     count = 0
-    for tok_start, tok_end, _ in token_indices:
+    for tok_start, _, _ in token_indices:
         # Token is in range if it starts within the range
         if start_char <= tok_start < end_char:
             count += 1
@@ -177,6 +211,12 @@ if __name__ == "__main__":
 
     # only include mappings for included files
     file_to_idx = {}
+
+    # retain more cit tags for training on dicts
+    if "dict" in path.name:
+        cit_tag_retention_prob = 0.2
+
+    print(f"<bibl> and <quote> tags kept at rate of {cit_tag_retention_prob}")
 
     for i, xml_file in enumerate(path.glob("*.xml")):
         saxHandler.filename = str(xml_file)
@@ -346,7 +386,7 @@ if __name__ == "__main__":
 
     # Get token IDs for special tokens to count them efficiently
     special_token_ids = set(
-        data_loader.tokenizer.convert_tokens_to_ids(SPECIAL_TOKENS)
+        cast(Callable, data_loader.tokenizer.convert_tokens_to_ids)(SPECIAL_TOKENS)
     )
 
     # Parser that doesn't try to load external DTDs or network entities
@@ -364,7 +404,9 @@ if __name__ == "__main__":
             del xml_bytes
 
             # Replace tags with special tokens and get attributes
-            processed_text, all_attributes = replace_tags_with_special_tokens(xml_text)
+            processed_text, all_attributes = replace_tags_with_special_tokens(
+                xml_text, cit_tag_retention_prob
+            )
 
             # Find special token positions in processed text (for attribute alignment)
             token_indices = find_special_token_indices(processed_text, SPECIAL_TOKENS)
@@ -403,7 +445,7 @@ if __name__ == "__main__":
                     window_end = target_end
 
                 window_tokens = tokens[i:window_end]
-                window_offsets = offset_mapping[i:window_end]
+                window_offsets = cast(Tensor, offset_mapping)[i:window_end]
 
                 # Get character range for this window
                 # Find first non-empty offset for start

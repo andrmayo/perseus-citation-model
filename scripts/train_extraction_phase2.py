@@ -7,7 +7,9 @@ from pathlib import Path
 from perscit_model.extraction.train import train_pipeline
 
 PHASE_2_PARTITION_DIR = Path(__file__).parent.parent / "model_data/extraction/phase_2"
-PHASE_2_SRC_PATH = Path(__file__).parent.parent / "cit_data/xml_files/window_data.jsonl"
+PHASE_2_SRC_PATH = (
+    Path(__file__).parent.parent / "cit_data/xml_files_dicts/window_data.jsonl"
+)
 PHASE_1_MODEL = (
     Path(__file__).parent.parent
     / "outputs/models/curriculum_learning/extraction_phase_1"
@@ -48,6 +50,7 @@ if __name__ == "__main__":
         strip_tags=["author", "title"],
         strip_tag_retention_prob=0.1,
         token_deletion_prob=0.05,
+        config=Path("configs/extraction/phase2.yaml"),
     )
 
 # train_pipeline should run as intendended without arguments;

@@ -31,6 +31,7 @@ class TrainingConfig:
     save_total_limit: int = 3
     logging_strategy: str = "steps"
     logging_steps: int = 100
+    logging_dir: Optional[str] = None
     report_to: str = "none"
     fp16: bool = True
     dataloader_num_workers: int = 4
@@ -63,7 +64,10 @@ class TrainingConfig:
 
         # Resolve output_dir to absolute path relative to project root
         # This ensures outputs/ is created in the project root, not CWD
-        if "output_dir" in config_dict and not Path(config_dict["output_dir"]).is_absolute():
+        if (
+            "output_dir" in config_dict
+            and not Path(config_dict["output_dir"]).is_absolute()
+        ):
             # Find project root by looking for pyproject.toml
             config_path = Path(path).resolve()
             current = config_path.parent
@@ -79,7 +83,9 @@ class TrainingConfig:
             # If we found project root, resolve output_dir relative to it
             # Otherwise, leave as-is (will be relative to CWD)
             if project_root:
-                config_dict["output_dir"] = str(project_root / config_dict["output_dir"])
+                config_dict["output_dir"] = str(
+                    project_root / config_dict["output_dir"]
+                )
 
         return cls(**config_dict)
 

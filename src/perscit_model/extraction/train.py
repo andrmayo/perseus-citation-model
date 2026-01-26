@@ -5,11 +5,20 @@ import logging
 import random
 import re
 import shutil
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import cast
 
 import torch
+
+# Suppress torchcrf deprecation warning about uint8 mask tensors
+# The library uses ByteTensor internally which triggers this warning in newer PyTorch
+warnings.filterwarnings(
+    "ignore",
+    message=".*uint8 condition tensor.*",
+    category=UserWarning,
+)
 from datasets import DatasetDict
 from seqeval.metrics import (
     accuracy_score,
@@ -22,9 +31,38 @@ from transformers import (
     DataCollatorForTokenClassification,
     EarlyStoppingCallback,
     Trainer,
+    TrainerCallback,
     TrainingArguments,
 )
 from transformers.trainer_utils import get_last_checkpoint
+
+
+class CheckpointMetadataCallback(TrainerCallback):
+    """Callback to save checkpoint metadata (step, epoch, steps_per_epoch)."""
+
+    def on_save(self, args, state, control, **kwargs):
+        """Save metadata when a checkpoint is saved."""
+        if state.best_model_checkpoint is None and args.output_dir:
+            # Regular checkpoint save
+            checkpoint_dir = Path(args.output_dir) / f"checkpoint-{state.global_step}"
+        else:
+            checkpoint_dir = None
+
+        if checkpoint_dir and checkpoint_dir.exists():
+            steps_per_epoch = (
+                state.max_steps / args.num_train_epochs
+                if args.num_train_epochs > 0
+                else state.max_steps
+            )
+            metadata = {
+                "global_step": state.global_step,
+                "epoch": state.epoch,
+                "steps_per_epoch": steps_per_epoch,
+                "max_steps": state.max_steps,
+                "num_train_epochs": args.num_train_epochs,
+            }
+            with open(checkpoint_dir / "checkpoint_info.json", "w") as f:
+                json.dump(metadata, f, indent=2)
 
 from perscit_model.extraction.data_loader import (
     ID2LABEL,
@@ -189,7 +227,7 @@ def split_data(
     random.seed(seed)
     filenames = list(examples_by_file.keys())
 
-    max_attempts = 100
+    max_attempts = 300
     tolerance = 0.02  # Allow 2% deviation from target example ratios
     best_split = None
     best_score = float("inf")  # Combined score of example + label deviation
@@ -400,7 +438,7 @@ def create_datasets(
         )
     logger.info(f"Training examples: {len(datasets['train'])}")
 
-    # Validation and test datasets use standard preprocessing (no augmentation)
+    # Validation and test datasets - apply same tag stripping but no token deletion
     if val_path:
         if not isinstance(val_path, Path):
             val_path = Path(val_path)
@@ -410,9 +448,21 @@ def create_datasets(
             )
         else:
             logger.info(f"Loading validation data from {val_path}")
-            datasets["validation"] = create_extraction_dataset(
-                val_path, config_path, tag_retention_prob=tag_retention_prob
-            )
+            if strip_tags:
+                # Apply same tag stripping as training, but no token deletion
+                datasets["validation"] = create_augmented_extraction_dataset(
+                    val_path,
+                    config_path,
+                    strip_tags=strip_tags,
+                    tag_retention_prob=strip_tag_retention_prob,
+                    token_deletion_prob=0.0,  # No token deletion for validation
+                    loss_margin_fraction=loss_margin_fraction,
+                )
+            else:
+                datasets["validation"] = create_extraction_dataset(
+                    val_path, config_path, tag_retention_prob=tag_retention_prob,
+                    loss_margin_fraction=loss_margin_fraction,
+                )
             logger.info(f"Validation examples: {len(datasets['validation'])}")
     else:
         logger.warning(
@@ -428,9 +478,21 @@ def create_datasets(
             )
         else:
             logger.info(f"Loading test data from {test_path}")
-            datasets["test"] = create_extraction_dataset(
-                test_path, config_path, tag_retention_prob=tag_retention_prob
-            )
+            if strip_tags:
+                # Apply same tag stripping as training, but no token deletion
+                datasets["test"] = create_augmented_extraction_dataset(
+                    test_path,
+                    config_path,
+                    strip_tags=strip_tags,
+                    tag_retention_prob=strip_tag_retention_prob,
+                    token_deletion_prob=0.0,  # No token deletion for test
+                    loss_margin_fraction=loss_margin_fraction,
+                )
+            else:
+                datasets["test"] = create_extraction_dataset(
+                    test_path, config_path, tag_retention_prob=tag_retention_prob,
+                    loss_margin_fraction=loss_margin_fraction,
+                )
             logger.info(f"Test examples: {len(datasets['test'])}")
 
     return DatasetDict(datasets)
@@ -625,11 +687,19 @@ def train(
         "weight_decay": weight_decay,
         "warmup_steps": warmup_steps,
         "seed": seed,
-        # Conditional overrides
-        "eval_strategy": "epoch" if val_path else "no",
-        "load_best_model_at_end": True if val_path else False,
-        "metric_for_best_model": "eval_f1" if val_path else None,
     }
+
+    # Handle eval/save strategy - disable if no validation set
+    if not val_path:
+        cli_overrides["eval_strategy"] = "no"
+        cli_overrides["load_best_model_at_end"] = False
+        cli_overrides["metric_for_best_model"] = None
+    else:
+        # Ensure save_strategy matches eval_strategy when load_best_model_at_end is True
+        if config.get("load_best_model_at_end", False):
+            cli_overrides["save_strategy"] = config.get("eval_strategy", "epoch")
+            if config.get("eval_strategy") == "steps":
+                cli_overrides["save_steps"] = config.get("eval_steps")
     # Only update if value is not None
     for key, value in cli_overrides.items():
         if value is not None:
@@ -654,6 +724,10 @@ def train(
         model if training_config.use_crf else None
     )
 
+    callbacks = [CheckpointMetadataCallback()]
+    if val_path:
+        callbacks.append(EarlyStoppingCallback(early_stopping_patience=patience))
+
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -661,9 +735,7 @@ def train(
         eval_dataset=datasets.get("validation"),
         data_collator=data_collator,
         compute_metrics=compute_metrics_fn,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=patience)]
-        if val_path
-        else [],
+        callbacks=callbacks,
     )
 
     # resume from checkpoint if provided
@@ -708,6 +780,39 @@ def train(
     state_file = Path(training_args.output_dir) / "trainer_state.json"
     if state_file.exists():
         shutil.copy(state_file, final_model_dir / "trainer_state.json")
+
+    # Save checkpoint metadata for final model
+    state = trainer.state
+    steps_per_epoch = (
+        state.max_steps / training_args.num_train_epochs
+        if training_args.num_train_epochs > 0
+        else state.max_steps
+    )
+
+    # Determine which checkpoint the model came from
+    if training_args.load_best_model_at_end and state.best_model_checkpoint:
+        # Extract step from best checkpoint path (e.g., "checkpoint-4000" -> 4000)
+        best_step = int(Path(state.best_model_checkpoint).name.split("-")[-1])
+        best_epoch = best_step / steps_per_epoch
+        source_checkpoint = state.best_model_checkpoint
+    else:
+        best_step = state.global_step
+        best_epoch = state.epoch
+        source_checkpoint = "end_of_training"
+
+    checkpoint_info = {
+        "global_step": best_step,
+        "epoch": round(best_epoch, 4),
+        "steps_per_epoch": round(steps_per_epoch, 2),
+        "max_steps": state.max_steps,
+        "num_train_epochs": training_args.num_train_epochs,
+        "source_checkpoint": source_checkpoint,
+        "best_metric": state.best_metric,
+        "metric_for_best_model": training_args.metric_for_best_model,
+    }
+    with open(final_model_dir / "checkpoint_info.json", "w") as f:
+        json.dump(checkpoint_info, f, indent=2)
+    logger.info(f"Model from step {best_step} (epoch {best_epoch:.2f})")
 
     # Eval on validation set
     val_metrics = None

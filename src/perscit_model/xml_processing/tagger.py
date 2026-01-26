@@ -174,6 +174,7 @@ class CitationTagger:
                 in_entity = False
                 last_label = "O"
                 last_end = 0
+                warned_orphan_i = False  # Track if we've warned about orphan I- tokens
 
                 for label, (start, end) in zip(labels, offset_mapping):
                     # This handles special tokens
@@ -186,10 +187,40 @@ class CitationTagger:
 
                     # Deal with invalid prediction (I- without preceding B-)
                     if not in_entity and label[0] == "I":
-                        logger.warning(
-                            f"Invalid: {label} without 'B-' label and with preceding context:\n\n {''.join(new_xml[-50:])}"
-                        )
-                        label = "O"
+                        # Only warn once for consecutive orphan I- tokens
+                        if not warned_orphan_i:
+                            # Show context window around the invalid token
+                            context_start = max(0, start - 200)
+                            context_end = min(len(xml_content), end + 200)
+                            context = xml_content[context_start:context_end]
+                            # Mark the token position in context
+                            token_in_context_start = start - context_start
+                            token_in_context_end = end - context_start
+                            marked_context = (
+                                context[:token_in_context_start]
+                                + ">>>"
+                                + context[token_in_context_start:token_in_context_end]
+                                + "<<<"
+                                + context[token_in_context_end:]
+                            )
+                            # Collect labels for all tokens in context window
+                            context_labels = []
+                            for lbl, (s, e) in zip(labels, offset_mapping):
+                                if s == e:  # Skip special tokens
+                                    continue
+                                if s >= context_start and e <= context_end:
+                                    token_text = xml_content[s:e]
+                                    context_labels.append(f"  {lbl:10} '{token_text}'")
+                            labels_str = "\n".join(context_labels)
+                            logger.warning(
+                                f"Invalid: {label} without 'B-' label at position {start}-{end}\n"
+                                f"Token: '{xml_content[start:end]}'\n"
+                                f"Context (token marked with >>>...<<<):\n{marked_context}\n"
+                                f"Labels in context:\n{labels_str}\n"
+                            )
+                            warned_orphan_i = True
+                        # Promote orphan I- to B- to preserve the entity
+                        label = "B-" + label[2:]
 
                     if label == "O":
                         if in_entity:
@@ -202,8 +233,8 @@ class CitationTagger:
                         new_xml.append(xml_content[start:end])
                         last_label = "O"
                         last_end = end
-                        # Don't reset boundary_issue_active here - only reset on valid B- labels
-                        # This prevents flooding with warnings for consecutive orphan I- tokens
+                        # Don't reset warned_orphan_i here - orphan I- tokens become O
+                        # and we don't want to re-warn. Only reset on valid B- labels.
                         continue
 
                     label_type, label_name = label.split("-")
@@ -217,18 +248,54 @@ class CitationTagger:
                             [f"[{label_name}_START]", xml_content[start:end]]
                         )
                         in_entity = True
+                        warned_orphan_i = False  # Reset for next potential orphan I- sequence
                     # label_type == "I"
                     else:
                         if label_name != last_label:
-                            logger.warning(
-                                f"Invalid: I-{last_label} followed by I-{label_name} with preceding context {''.join(new_xml[-50:])}"
-                            )
-                            # If we were in an entity, close it first
+                            # Only warn once for consecutive invalid I- tokens
+                            if not warned_orphan_i:
+                                # Show context window around the invalid token
+                                context_start = max(0, start - 200)
+                                context_end = min(len(xml_content), end + 200)
+                                context = xml_content[context_start:context_end]
+                                token_in_context_start = start - context_start
+                                token_in_context_end = end - context_start
+                                marked_context = (
+                                    context[:token_in_context_start]
+                                    + ">>>"
+                                    + context[token_in_context_start:token_in_context_end]
+                                    + "<<<"
+                                    + context[token_in_context_end:]
+                                )
+                                # Collect labels for all tokens in context window
+                                context_labels = []
+                                for lbl, (s, e) in zip(labels, offset_mapping):
+                                    if s == e:  # Skip special tokens
+                                        continue
+                                    if s >= context_start and e <= context_end:
+                                        token_text = xml_content[s:e]
+                                        context_labels.append(f"  {lbl:10} '{token_text}'")
+                                labels_str = "\n".join(context_labels)
+                                logger.warning(
+                                    f"Invalid: I-{last_label} followed by I-{label_name} at position {start}-{end}\n"
+                                    f"Token: '{xml_content[start:end]}'\n"
+                                    f"Context (token marked with >>>...<<<):\n{marked_context}\n"
+                                    f"Labels in context:\n{labels_str}\n"
+                                )
+                                warned_orphan_i = True
+                            # Close the previous entity if any
                             if last_label != "O":
                                 new_xml.append(f"[{last_label}_END]")
-                            # Treat this orphan I- as O (can't continue non-existent entity)
-                            label_name = "O"
-                            in_entity = False
+                            # Promote orphan I- to B- to start a new entity
+                            if start > last_end:
+                                new_xml.append(xml_content[last_end:start])
+                            new_xml.extend(
+                                [f"[{label_name}_START]", xml_content[start:end]]
+                            )
+                            in_entity = True
+                            last_label = label_name
+                            last_end = end
+                            continue
                         if start > last_end:
                             new_xml.append(xml_content[last_end:start])
                         new_xml.append(xml_content[start:end])

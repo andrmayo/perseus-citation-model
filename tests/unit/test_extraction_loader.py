@@ -798,3 +798,40 @@ class TestTrainingTransform:
         assert len(result["attention_mask"]) == 3
         assert len(result["labels"]) == 3
         # filename is intentionally excluded from output
+
+    def test_call_handles_raw_xml_input(self, transform):
+        """Test that __call__ correctly handles raw XML (without special tokens)."""
+        # Raw XML format (like phase 1/2 data before preprocessing)
+        examples = {
+            "xml_context": [
+                "Some text <bibl>Citation here</bibl> more text"
+            ],
+        }
+
+        result = transform(examples)
+
+        # Should have generated labels
+        labels = result["labels"][0]
+
+        # Should have some non-O, non-masked labels (B-BIBL or I-BIBL)
+        # -100 is masked, 0 is O, 1 is B-BIBL, 2 is I-BIBL
+        bibl_labels = [l for l in labels if l in (1, 2)]
+        assert len(bibl_labels) > 0, "Should have BIBL labels for raw XML input"
+
+    def test_call_handles_special_tokens_input(self, transform):
+        """Test that __call__ correctly handles special token format."""
+        # Special token format (preprocessed data)
+        examples = {
+            "window_text": [
+                "Some text [BIBL_START]Citation here[BIBL_END] more text"
+            ],
+        }
+
+        result = transform(examples)
+
+        # Should have generated labels
+        labels = result["labels"][0]
+
+        # Should have some non-O, non-masked labels (B-BIBL or I-BIBL)
+        bibl_labels = [l for l in labels if l in (1, 2)]
+        assert len(bibl_labels) > 0, "Should have BIBL labels for special token input"

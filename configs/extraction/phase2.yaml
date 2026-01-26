@@ -38,7 +38,7 @@ output_dir: outputs/extraction
 # Logging
 logging_strategy: steps
 logging_steps: 100 # More frequent logging for smoother curves
-logging_dir: outputs/extraction/tensorboard_logs
+logging_dir: outputs/extraction/tensorboard_logs/phase2 # this is just for tensorboard
 report_to: tensorboard
 
 # Reproducibility

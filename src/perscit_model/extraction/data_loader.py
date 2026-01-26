@@ -911,12 +911,28 @@ class TrainingTransform:
             "labels": [],
         }
 
+        # Check if data has special tokens (new format) or raw XML (old format)
+        first_text = examples[text_key][0] if examples[text_key] else ""
+        has_special_tokens = "[CIT_START]" in first_text or "[BIBL_START]" in first_text
+
         for text in examples[text_key]:
             text = self.process_internal_tags(text)
 
-            text = ExtractionDataLoader.process_special_tokens(text)
+            # Convert to special tokens based on format
+            if has_special_tokens:
+                text = ExtractionDataLoader.process_special_tokens(text)
+            else:
+                # Raw XML - convert tags to special tokens
+                text = ExtractionDataLoader.parse_xml_to_bio(text)
 
-            encoding = self.loader.tokenize_text(text)
+            # Tokenize WITHOUT padding - pad_and_mask will handle centering
+            encoding = self.loader.tokenizer(
+                text,
+                truncation=True,
+                padding=False,
+                max_length=self.loader.max_length,
+                return_tensors="pt",
+            )
             input_ids = encoding.input_ids[0].tolist()
 
             labels = self.loader.generate_bio_labels(input_ids)

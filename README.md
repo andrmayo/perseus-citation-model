@@ -179,36 +179,6 @@ alternative if:
 - Memory constraints
 - Strong baseline performance
 
-### Current Implementation (Special Tokens Approach)
-
-**See actual implementation in `src/perscit_model/extraction/`**
-
-**Key differences from standard token classification:**
-
-1. **No word alignment** - Special tokens handle tag boundaries
-2. **Simpler labels** - Generated automatically from special token positions
-3. **Malformed XML handling** - BeautifulSoup repairs broken tags
-4. **Nested tags** - State machine tracks most recent tag (special tokens remain
-   visible)
-5. **Special tokens stripped** - After label generation, special tokens are
-   removed from input so model doesn't see them during training
-
-### Pros
-
-- Simple to implement with HuggingFace
-- Strong baseline performance
-- Fast training with GPU
-- Well-documented and widely used
-- Transfer learning from pre-trained models
-
-### Cons
-
-- May produce invalid tag sequences (e.g., `I-QUOTE` without `B-QUOTE`)
-- Doesn't explicitly model tag dependencies
-- Treats each token prediction independently
-
----
-
 ### CRF Decoding Layer
 
 To help the model learn sequences rather than simply individual token labels,
@@ -249,101 +219,25 @@ train_path, val_path, test_path = split_data(
 
 ---
 
-## Usage Guide
+## Training Details
 
-### Training a Model
+- Training done via curriculum learning:
+  - Phase 1 on just passages with citations
+  - Phase 2 on all dictionary XML files, especially LSJ, with data augmentation
+    described below
+  - Phase 3 on commentary XML files, and with some `<bibl>` and `<quote>` tags
+    randomly retained and their contents labelled as "O" so model learns to
+    ignore existing tagged citations
 
-```python
-from perscit_model.extraction.train import train_pipeline
-
-# Complete training pipeline (handles data splitting, training, evaluation)
-trainer = train_pipeline(
-    data_dir="model_data/extraction",  # Optional: defaults to model_data/extraction
-    config_path="configs/extraction/baseline.yaml",  # Optional: defaults to baseline
-    output_dir="outputs/extraction",  # Where to save checkpoints
-    num_epochs=3,  # Optional: override config
-    batch_size=16,  # Optional: override config
-)
-```
-
-### Evaluating a Trained Model
-
-```python
-from perscit_model.extraction.evaluate import evaluate_model
-
-# Evaluate on test set
-metrics = evaluate_model(
-    model_path=None,  # Uses most recent trained model
-    test_path="model_data/extraction/test.jsonl",
-    output_dir="outputs/extraction/test",
-    last_trained=True,  # Load most recent model from outputs/extraction
-)
-
-print(f"F1 Score: {metrics['f1']:.3f}")
-print(f"Precision: {metrics['precision']:.3f}")
-print(f"Recall: {metrics['recall']:.3f}")
-```
-
-### Running Inference on Plain Text
-
-```python
-from perscit_model.extraction.inference import InferenceModel
-
-# Load trained model
-model = InferenceModel(last_trained=True)
-
-# Process plain text (without citation tags)
-text = "As Homer says in Il. 7.268: Ajax hurled a rock toward the enemy."
-
-# Get predictions
-inputs, labels = model.process_text(text)
-
-# Insert predicted tags into text
-predicted_xml = model.insert_tags_into_xml(text, inputs, labels)
-print(predicted_xml)
-# Output: "As Homer says in <bibl>Il. 7.268</bibl>: <quote>Ajax hurled a rock toward the enemy.</quote>"
-```
-
-### Batch Inference (Efficient GPU Utilization)
-
-```python
-# Process multiple texts efficiently
-texts = [
-    "Herodotus mentions this in 8.82",
-    "Plato discusses justice in Rep. 332D: To each his due",
-    "See Thucydides 3.38 for details"
-]
-
-results = model.process_batch(texts, batch_size=32)
-
-for text, (inputs, labels) in zip(texts, results):
-    predicted_xml = model.insert_tags_into_xml(text, inputs, labels)
-    print(predicted_xml)
-```
-
----
-
-## Evaluation Metrics
-
-```python
-from seqeval.metrics import classification_report, f1_score
-
-# seqeval properly handles BIO tagging
-predictions = ["O", "B-BIBL", "I-BIBL", "O", "B-QUOTE", "I-QUOTE"]
-ground_truth = ["O", "B-BIBL", "I-BIBL", "O", "B-QUOTE", "I-QUOTE"]
-
-print(classification_report([ground_truth], [predictions]))
-```
-
-**Key metrics:**
-
-- **Precision:** Of predicted tags, how many are correct?
-- **Recall:** Of actual tags, how many did we find?
-- **F1-score:** Harmonic mean of precision and recall
-- **Entity-level F1:** Full span must match (stricter)
-- **Accuracy:** Token-level accuracy (less meaningful for imbalanced data)
-
----
+NB: The LSJ is about half of the raw amount of text in the phase 2 training
+corpus, and has more than half of the citation tokens. The LSJ also has certain
+distorting features, above all the consistent use of `<author>` and `<title>`
+tags in citations. Hence, to prevent over-reliance on these tags, they get
+stripped at a rate of 50%. It would be risky to strip them at a higher rate than
+this unless done during preprocessing, given that it is likely to produce a
+strong correlation between text length and the presence of citations. It should
+also probably only be used alongside random token dropping (which makes this
+correlation noisier, but doesn't eliminate it in expectation).
 
 ## Processing Full XML Documents
 
@@ -454,23 +348,24 @@ must be inserted logically.
 **Pattern matching algorithm**:
 
 1. **Identify adjacent pairs**:
-   - `<bibl>` followed by `<quote>` (within max_distance)
-   - `<quote>` followed by `<bibl>` (within max_distance)
+   - `<bibl>` immediately followed by `<quote>` (same parent, adjacent siblings)
+   - `<quote>` immediately followed by `<bibl>` (same parent, adjacent siblings)
 
-2. **Wrapping heuristics** (tune as needed):
-   - Max distance: ~100 characters
-   - Must be in same paragraph/structural element
-   - Don't wrap if another citation tag appears between them
+2. **Wrapping conditions**:
+   - Must be direct siblings in XML tree
+   - Only whitespace allowed between elements
+   - Not already inside a `<cit>` tag
+   - Don't wrap if non-whitespace text appears between them
 
 3. **Insert `<cit>` wrapper**:
    - Wrap the pair: `<cit><bibl>...</bibl><quote>...</quote></cit>`
-   - Preserve whitespace and other tags between elements
+   - Preserve whitespace between elements
 
 **Example**:
 
 ```xml
-Before: See <bibl>Hdt. 8.82</bibl>: <quote>Ajax hurled a rock</quote> for details.
-After:  See <cit><bibl>Hdt. 8.82</bibl>: <quote>Ajax hurled a rock</quote></cit> for details.
+Before: See <bibl>Hdt. 8.82</bibl> <quote>Ajax hurled a rock</quote> for details.
+After:  See <cit><bibl>Hdt. 8.82</bibl> <quote>Ajax hurled a rock</quote></cit> for details.
 ```
 
 ### Implementation Overview
