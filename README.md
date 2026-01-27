@@ -5,12 +5,12 @@ and resolving bibliographic references to canonical URNs.
 
 Current README largely contains notes for my own use.
 
-**Project Status:** 🚧 Early Development
+**Project Status:** Early Development
 
 - ✅ Data pipeline implemented (extraction task)
 - ✅ Model initialization and embedding handling
 - ✅ Fine-tuning for extraction task
-- ⏳ XML file processing using fine-tuned model (in progress)
+- ✅ XML file processing using fine-tuned model (in progress)
 - ⏳ URN resolution implementation (planned)
 
 ## Installation
